@@ -10,6 +10,15 @@ class ResizableButton: UIButton {
         static let buttonEdgeSpacing: CGFloat = 8
     }
 
+    var buttonEdgeSpacing: CGFloat = UX.buttonEdgeSpacing {
+        didSet {
+            contentEdgeInsets = UIEdgeInsets(top: 0,
+                                             left: buttonEdgeSpacing,
+                                             bottom: 0,
+                                             right: buttonEdgeSpacing)
+        }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         commonInit()
@@ -24,18 +33,30 @@ class ResizableButton: UIButton {
         titleLabel?.numberOfLines = 0
         titleLabel?.adjustsFontForContentSizeCategory = true
         titleLabel?.lineBreakMode = .byWordWrapping
+        adjustsImageSizeForAccessibilityContentSizeCategory = true
         contentEdgeInsets = UIEdgeInsets(top: 0,
-                                         left: UX.buttonEdgeSpacing,
+                                         left: buttonEdgeSpacing,
                                          bottom: 0,
-                                         right: UX.buttonEdgeSpacing)
+                                         right: buttonEdgeSpacing)
     }
 
     override var intrinsicContentSize: CGSize {
         guard let title = titleLabel else {
             return super.intrinsicContentSize
         }
-        let size = title.intrinsicContentSize
-        return CGSize(width: size.width + contentEdgeInsets.left + contentEdgeInsets.right, height: size.height + contentEdgeInsets.top + contentEdgeInsets.bottom)
+
+        let widthTitleInset = titleEdgeInsets.left + titleEdgeInsets.right
+        let widthImageInset = imageEdgeInsets.left + imageEdgeInsets.right
+        let widthContentInset = contentEdgeInsets.left + contentEdgeInsets.right
+
+        var availableWidth = frame.width - widthTitleInset - widthImageInset - widthContentInset
+        if let imageWidth = image(for: [])?.size.width {
+            availableWidth = availableWidth - imageWidth
+        }
+
+        let size = title.sizeThatFits(CGSize(width: availableWidth, height: .greatestFiniteMagnitude))
+        return CGSize(width: size.width + widthContentInset,
+                      height: size.height + contentEdgeInsets.top + contentEdgeInsets.bottom)
     }
 
     override func layoutSubviews() {

@@ -10,16 +10,16 @@ private let defaultSeparator = UIColor.Photon.Grey60
 private let defaultTextAndTint = UIColor.Photon.Grey10
 
 private class DarkTableViewColor: TableViewColor {
-    override var rowBackground: UIColor { return UIColor.Photon.Grey70 }
-    override var rowText: UIColor { return defaultTextAndTint }
+    override var rowBackground: UIColor { return UIColor.Photon.Grey70 } // layer2
+    override var rowText: UIColor { return defaultTextAndTint } // textPrimary
     override var rowDetailText: UIColor { return UIColor.Photon.Grey30 }
-    override var disabledRowText: UIColor { return UIColor.Photon.Grey40 }
+    override var disabledRowText: UIColor { return UIColor.Photon.Grey40 } // textDisabled
     override var separator: UIColor { return UIColor.Photon.Grey60 }
     override var headerBackground: UIColor { return UIColor.Photon.Grey80 }
-    override var headerTextLight: UIColor { return UIColor.Photon.Grey30 }
+    override var headerTextLight: UIColor { return UIColor.Photon.Grey30 } // textSecondary
     override var headerTextDark: UIColor { return UIColor.Photon.Grey30 }
     override var syncText: UIColor { return defaultTextAndTint }
-    override var accessoryViewTint: UIColor { return UIColor.Photon.Grey40 }
+    override var accessoryViewTint: UIColor { return UIColor.Photon.Grey40 } // actionSecondary
     override var selectedBackground: UIColor { return UIColor.Custom.selectedHighlightDark }
 }
 
@@ -120,12 +120,15 @@ private class DarkHomePanelColor: HomePanelColor {
     override var topSiteDomain: UIColor { return UIColor.Photon.LightGrey05 }
     override var topSitePin: UIColor { return UIColor.Photon.LightGrey05 }
     override var topSitesBackground: UIColor { return UIColor.Photon.DarkGrey60 }
+    override var topSitesContainerView: UIColor { return UIColor.Photon.DarkGrey40 }
+    override var emptyTopSitesBorder: UIColor { return .white }
 
     override var shortcutBackground: UIColor { return UIColor.Photon.DarkGrey30 }
     override var shortcutShadowColor: CGColor { return UIColor(red: 0.11, green: 0.11, blue: 0.13, alpha: 1.0).cgColor }
-    override var shortcutShadowOpacity: Float { return 0.5 }
 
-    override var recentlySavedBookmarkCellBackground: UIColor { return UIColor.Photon.DarkGrey30 }
+    override var recentlySavedBookmarkCellBackground: UIColor { return UIColor.Photon.DarkGrey40 }
+    override var recentlySavedBookmarkImageBackground: UIColor { return UIColor.Photon.DarkGrey60 }
+    override var recentlySavedBookmarkTitle: UIColor { return UIColor.Photon.LightGrey10 }
 
     override var recentlyVisitedCellGroupImage: UIColor { return .white }
 
@@ -141,6 +144,8 @@ private class DarkHomePanelColor: HomePanelColor {
 
     override var customizeHomepageButtonBackground: UIColor { return UIColor.Photon.DarkGrey50 }
     override var customizeHomepageButtonText: UIColor { return UIColor.Photon.LightGrey10 }
+
+    override var sponsored: UIColor { return UIColor.Photon.LightGrey40 }
 }
 
 private class DarkSnackBarColor: SnackBarColor {
@@ -155,21 +160,24 @@ private class DarkGeneralColor: GeneralColor {
 }
 
 class DarkHomeTabBannerColor: HomeTabBannerColor {
-    override var backgroundColor: UIColor { return UIColor.Photon.Grey60 }
+    override var backgroundColor: UIColor { return UIColor.Photon.DarkGrey40 }
     override var textColor: UIColor { return UIColor.white }
     override var closeButtonBackground: UIColor { return UIColor.Photon.Grey80 }
     override var closeButton: UIColor { return UIColor.Photon.Grey20 }
 }
 
 class DarkOnboardingColor: OnboardingColor {
-    override var backgroundColor: UIColor { return UIColor.Photon.Grey90 }
+    override var backgroundColor: UIColor { return UIColor.Photon.DarkGrey40 }
+    override var etpBackgroundColor: UIColor { return UIColor.Photon.DarkGrey40 }
+    override var etpTextColor: UIColor { return UIColor.white }
+    override var etpButtonColor: UIColor { return UIColor.Photon.Blue20 }
 }
 
 class DarkRemoteTabTrayColor: RemoteTabTrayColor {
     override var background: UIColor { return UIColor.Photon.Grey70 }
 }
 
-class DarkTheme: NormalTheme {
+class LegacyDarkTheme: LegacyNormalTheme {
     override var name: String { return BuiltinThemeName.dark.rawValue }
     override var tableView: TableViewColor { return DarkTableViewColor() }
     override var urlbar: URLBarColor { return DarkURLBarColor() }

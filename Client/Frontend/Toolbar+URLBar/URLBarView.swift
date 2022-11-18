@@ -48,7 +48,18 @@ protocol URLBarDelegate: AnyObject {
     func urlBarDidBeginDragInteraction(_ urlBar: URLBarView)
 }
 
-class URLBarView: UIView, AlphaDimmable, TopBottomInterchangeable {
+protocol URLBarViewProtocol {
+    var inOverlayMode: Bool { get }
+    func leaveOverlayMode(didCancel cancel: Bool)
+}
+
+extension URLBarViewProtocol {
+    func leaveOverlayMode(didCancel cancel: Bool = false) {
+        self.leaveOverlayMode(didCancel: cancel)
+    }
+}
+
+class URLBarView: UIView, URLBarViewProtocol, AlphaDimmable, TopBottomInterchangeable {
     // Additional UIAppearance-configurable properties
     @objc dynamic var locationBorderColor: UIColor = URLBarViewUX.TextFieldBorderColor {
         didSet {
@@ -538,7 +549,7 @@ class URLBarView: UIView, AlphaDimmable, TopBottomInterchangeable {
         }
     }
 
-    func leaveOverlayMode(didCancel cancel: Bool = false) {
+    func leaveOverlayMode(didCancel cancel: Bool) {
         locationTextField?.resignFirstResponder()
         animateToOverlayState(overlayMode: false, didCancel: cancel)
         delegate?.urlBarDidLeaveOverlayMode(self)
@@ -612,7 +623,7 @@ class URLBarView: UIView, AlphaDimmable, TopBottomInterchangeable {
         // badge isHidden is tied to private mode on/off, use alpha to hide in this case
         [privateModeBadge, appMenuBadge, warningMenuBadge].forEach {
             $0.badge.alpha = (!toolbarIsShowing || inOverlayMode) ? 0 : 1
-            $0.backdrop.alpha = (!toolbarIsShowing || inOverlayMode) ? 0 : BadgeWithBackdrop.backdropAlpha
+            $0.backdrop.alpha = (!toolbarIsShowing || inOverlayMode) ? 0 : BadgeWithBackdrop.UX.backdropAlpha
         }
 
     }
@@ -627,13 +638,19 @@ class URLBarView: UIView, AlphaDimmable, TopBottomInterchangeable {
             removeLocationTextField()
         }
 
-        UIView.animate(withDuration: 0.3, delay: 0.0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.0, options: [], animations: {
-            self.transitionToOverlay(cancel)
-            self.setNeedsUpdateConstraints()
-            self.layoutIfNeeded()
-        }, completion: { _ in
-            self.updateViewsForOverlayModeAndToolbarChanges()
-        })
+        UIView.animate(
+            withDuration: 0.3,
+            delay: 0.0,
+            usingSpringWithDamping: 0.85,
+            initialSpringVelocity: 0.0,
+            options: [],
+            animations: {
+                self.transitionToOverlay(cancel)
+                self.setNeedsUpdateConstraints()
+                self.layoutIfNeeded()
+            }, completion: { _ in
+                self.updateViewsForOverlayModeAndToolbarChanges()
+            })
     }
 
     func didClickAddTab() {
@@ -658,9 +675,7 @@ extension URLBarView: TabToolbarProtocol {
 
     func appMenuBadge(setVisible: Bool) {
         // Warning badges should take priority over the standard badge
-        guard warningMenuBadge.badge.isHidden else {
-            return
-        }
+        guard warningMenuBadge.badge.isHidden else { return }
 
         appMenuBadge.show(setVisible)
     }
@@ -851,7 +866,9 @@ extension URLBarView: PrivateModeUI {
         }
 
         locationActiveBorderColor = UIColor.theme.urlbar.activeBorder(isPrivate)
-        progressBar.setGradientColors(startColor: UIColor.theme.loadingBar.start(isPrivate), endColor: UIColor.theme.loadingBar.end(isPrivate))
+        progressBar.setGradientColors(startColor: UIColor.theme.loadingBar.start(isPrivate),
+                                      middleColor: UIColor.theme.loadingBar.middle(isPrivate),
+                                      endColor: UIColor.theme.loadingBar.end(isPrivate))
         ToolbarTextField.applyUIMode(isPrivate: isPrivate)
 
         applyTheme()

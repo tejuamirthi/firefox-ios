@@ -3,31 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import UIKit
-
-class PocketStandardCellViewModel {
-    var title: String { story.title }
-    var imageURL: URL { story.imageURL }
-    var url: URL? { story.url }
-    var sponsor: String? { story.sponsor }
-    var description: String {
-        if let sponsor = story.sponsor {
-            return sponsor
-        } else {
-            return "\(story.domain) • \(String.localizedStringWithFormat(String.FirefoxHomepage.Pocket.NumberOfMinutes, story.timeToRead ?? 0))"
-        }
-    }
-    var accessibilityLabel: String {
-        return "\(title), \(description)"
-    }
-
-    var onTap: (IndexPath) -> Void = { _ in }
-
-    private let story: PocketStory
-
-    init(story: PocketStory) {
-        self.story = story
-    }
-}
+import Shared
 
 // MARK: - PocketStandardCell
 /// A cell used in FxHomeScreen's Pocket section
@@ -39,16 +15,13 @@ class PocketStandardCell: UICollectionViewCell, ReusableCell {
         static let interItemSpacing = NSCollectionLayoutSpacing.fixed(8)
         static let interGroupSpacing: CGFloat = 8
         static let generalCornerRadius: CGFloat = 12
-        static let titleFontSize: CGFloat = 49 // Style subheadline - AX5
-        static let sponsoredMaxFontSize: CGFloat = 49 // Style subheadline - AX5
-        static let siteFontSize: CGFloat = 43 // Style caption1 - AX5
-        static let stackViewShadowRadius: CGFloat = 4
-        static let stackViewShadowOffset: CGFloat = 2
+        static let titleFontSize: CGFloat = 15
+        static let sponsoredFontSize: CGFloat = 12
+        static let siteFontSize: CGFloat = 12
+        static let horizontalMargin: CGFloat = 16
         static let heroImageSize =  CGSize(width: 108, height: 80)
-        static let fallbackFaviconSize = CGSize(width: 56, height: 56)
-        static let faviconSize = CGSize(width: 24, height: 24)
         static let sponsoredIconSize = CGSize(width: 12, height: 12)
-        static let sponsoredStackSpacing: CGFloat = 8
+        static let sponsoredStackSpacing: CGFloat = 4
     }
 
     // MARK: - UI Elements
@@ -56,56 +29,49 @@ class PocketStandardCell: UICollectionViewCell, ReusableCell {
         image.contentMode = .scaleAspectFill
         image.clipsToBounds = true
         image.layer.masksToBounds = true
-        image.layer.cornerRadius = UX.generalCornerRadius
+        image.layer.cornerRadius = HomepageViewModel.UX.generalCornerRadius
         image.backgroundColor = .clear
     }
 
     private lazy var titleLabel: UILabel = .build { title in
         title.adjustsFontForContentSizeCategory = true
         title.font = DynamicFontHelper.defaultHelper.preferredFont(withTextStyle: .subheadline,
-                                                                   maxSize: UX.titleFontSize)
+                                                                   size: UX.titleFontSize)
         title.numberOfLines = 2
     }
 
-    private lazy var sponsoredStack: UIStackView = .build { stackView in
-        stackView.addArrangedSubview(self.sponsoredIconContainer)
-        stackView.addArrangedSubview(self.sponsoredLabel)
-        stackView.axis = .horizontal
+    private lazy var bottomTextStackView: UIStackView = .build { stackView in
+        stackView.axis = .vertical
         stackView.spacing = UX.sponsoredStackSpacing
-        stackView.alignment = .leading
-        stackView.distribution = .fillProportionally
+        stackView.alignment = .fill
+        stackView.distribution = .fill
     }
 
-    private lazy var sponsoredIconContainer: UIView = .build { view in
-        view.addSubview(self.sponsoredIcon)
-        view.backgroundColor = .clear
+    private lazy var sponsoredStack: UIStackView = .build { stackView in
+        stackView.axis = .horizontal
+        stackView.spacing = UX.sponsoredStackSpacing
+        stackView.alignment = .center
+        stackView.distribution = .fill
     }
 
     private lazy var sponsoredLabel: UILabel = .build { label in
         label.adjustsFontForContentSizeCategory = true
-        label.font = DynamicFontHelper.defaultHelper.preferredFont(withTextStyle: .caption1,
-                                                                   maxSize: UX.sponsoredMaxFontSize)
-        label.textColor = .secondaryLabel
-        label.numberOfLines = 1
+        label.font = DynamicFontHelper.defaultHelper.preferredFont(withTextStyle: .caption2,
+                                                                   size: UX.sponsoredFontSize)
         label.text = .FirefoxHomepage.Pocket.Sponsored
     }
 
     private lazy var sponsoredIcon: UIImageView = .build { image in
         image.image = UIImage(named: ImageIdentifiers.sponsoredStar)
-        NSLayoutConstraint.activate([
-            image.heightAnchor.constraint(equalToConstant: UX.sponsoredIconSize.height),
-            image.widthAnchor.constraint(equalToConstant: UX.sponsoredIconSize.width)
-        ])
     }
 
     private lazy var descriptionLabel: UILabel = .build { label in
         label.adjustsFontForContentSizeCategory = true
-        label.font = DynamicFontHelper.defaultHelper.preferredFont(withTextStyle: .caption1,
-                                                                   maxSize: UX.siteFontSize)
+        label.font = DynamicFontHelper.defaultHelper.preferredBoldFont(withTextStyle: .caption1,
+                                                                   size: UX.siteFontSize)
     }
 
     // MARK: - Variables
-    var notificationCenter: NotificationCenter = NotificationCenter.default
     private var sponsoredImageCenterConstraint: NSLayoutConstraint?
     private var sponsoredImageFirstBaselineConstraint: NSLayoutConstraint?
 
@@ -113,8 +79,6 @@ class PocketStandardCell: UICollectionViewCell, ReusableCell {
 
     override init(frame: CGRect) {
         super.init(frame: .zero)
-        setupNotifications(forObserver: self,
-                           observing: [.DynamicFontChanged])
 
         isAccessibilityElement = true
         accessibilityIdentifier = AccessibilityIdentifiers.FirefoxHomepage.Pocket.itemCell
@@ -135,75 +99,67 @@ class PocketStandardCell: UICollectionViewCell, ReusableCell {
 
     // MARK: - Helpers
 
-    func configure(viewModel: PocketStandardCellViewModel) {
+    func configure(viewModel: PocketStandardCellViewModel, theme: Theme) {
         titleLabel.text = viewModel.title
         descriptionLabel.text = viewModel.description
         accessibilityLabel = viewModel.accessibilityLabel
+        tag = viewModel.tag
 
-        heroImageView.sd_setImage(with: viewModel.imageURL)
-        sponsoredStack.isHidden = viewModel.sponsor == nil
-        descriptionLabel.font = viewModel.sponsor == nil
-        ? DynamicFontHelper.defaultHelper.preferredFont(withTextStyle: .caption1,
-                                                        maxSize: UX.siteFontSize)
-        : DynamicFontHelper.defaultHelper.preferredBoldFont(withTextStyle: .caption1,
-                                                            maxSize: UX.siteFontSize)
-
-        titleLabel.textColor = .defaultTextColor
-        descriptionLabel.textColor = viewModel.sponsor == nil ? .defaultTextColor : .sponsoredDescriptionColor
-
-        if viewModel.sponsor != nil {
-            configureSponsoredStack()
+        ImageLoadingHandler.shared.getImageFromCacheOrDownload(
+            with: viewModel.imageURL,
+            limit: ImageLoadingConstants.NoLimitImageSize
+        ) { [weak self] image, error in
+            guard error == nil, let image = image, self?.tag == viewModel.tag else { return }
+            self?.heroImageView.image = image
         }
+
+        sponsoredStack.isHidden = viewModel.shouldHideSponsor
+        descriptionLabel.font = viewModel.shouldHideSponsor
+        ? DynamicFontHelper.defaultHelper.preferredFont(withTextStyle: .caption1,
+                                                        size: UX.siteFontSize)
+        : DynamicFontHelper.defaultHelper.preferredBoldFont(withTextStyle: .caption1,
+                                                            size: UX.siteFontSize)
+
+        sponsoredStack.isHidden  = viewModel.shouldHideSponsor
+
+        adjustLayout()
+        applyTheme(theme: theme)
     }
 
     private func setupLayout() {
-        contentView.backgroundColor = .cellBackground
-        contentView.layer.cornerRadius = UX.generalCornerRadius
-        contentView.layer.shadowRadius = UX.stackViewShadowRadius
-        contentView.layer.shadowOffset = CGSize(width: 0, height: UX.stackViewShadowOffset)
-        contentView.layer.shadowColor = UIColor.theme.homePanel.shortcutShadowColor
-        contentView.layer.shadowOpacity = 0.12
-
-        contentView.addSubviews(titleLabel, descriptionLabel, heroImageView)
+        contentView.addSubviews(titleLabel, heroImageView)
+        sponsoredStack.addArrangedSubview(sponsoredIcon)
+        sponsoredStack.addArrangedSubview(sponsoredLabel)
+        bottomTextStackView.addArrangedSubview(sponsoredStack)
+        bottomTextStackView.addArrangedSubview(descriptionLabel)
+        contentView.addSubview(bottomTextStackView)
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-            titleLabel.leadingAnchor.constraint(equalTo: heroImageView.trailingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: UX.horizontalMargin),
+            titleLabel.leadingAnchor.constraint(equalTo: heroImageView.trailingAnchor,
+                                                constant: UX.horizontalMargin),
+            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor,
+                                                 constant: -UX.horizontalMargin),
 
-            heroImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            heroImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor,
+                                                   constant: UX.horizontalMargin),
             heroImageView.heightAnchor.constraint(equalToConstant: UX.heroImageSize.height),
             heroImageView.widthAnchor.constraint(equalToConstant: UX.heroImageSize.width),
             heroImageView.topAnchor.constraint(equalTo: titleLabel.topAnchor),
-            heroImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -16),
+            heroImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor,
+                                                  constant: -UX.horizontalMargin),
 
-            descriptionLabel.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 8),
-            descriptionLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            descriptionLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            descriptionLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            // Sponsored
+            bottomTextStackView.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 8),
+            bottomTextStackView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            bottomTextStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor,
+                                                       constant: -UX.horizontalMargin),
+            bottomTextStackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor,
+                                                     constant: -UX.horizontalMargin),
+
+            sponsoredIcon.heightAnchor.constraint(equalToConstant: UX.sponsoredIconSize.height),
+            sponsoredIcon.widthAnchor.constraint(equalToConstant: UX.sponsoredIconSize.width),
         ])
-    }
-
-    private func configureSponsoredStack() {
-        contentView.addSubview(sponsoredStack)
-        NSLayoutConstraint.activate([
-            sponsoredIconContainer.centerYAnchor.constraint(equalTo: sponsoredIcon.centerYAnchor),
-            sponsoredIconContainer.leadingAnchor.constraint(equalTo: sponsoredIcon.leadingAnchor),
-            sponsoredIconContainer.trailingAnchor.constraint(equalTo: sponsoredIcon.trailingAnchor),
-
-            sponsoredStack.topAnchor.constraint(greaterThanOrEqualTo: titleLabel.bottomAnchor, constant: 8),
-            sponsoredStack.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            sponsoredStack.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            sponsoredStack.bottomAnchor.constraint(equalTo: descriptionLabel.topAnchor, constant: -4),
-        ])
-
-        sponsoredImageCenterConstraint = sponsoredLabel.centerYAnchor.constraint(equalTo: sponsoredIconContainer.centerYAnchor).priority(UILayoutPriority(999))
-        sponsoredImageFirstBaselineConstraint = sponsoredLabel.firstBaselineAnchor.constraint(equalTo: sponsoredIconContainer.bottomAnchor,
-                                                                                              constant: -UX.sponsoredIconSize.height / 2)
-
-        sponsoredLabel.setContentCompressionResistancePriority(UILayoutPriority(1000), for: .vertical)
-
-        adjustLayout()
     }
 
     private func adjustLayout() {
@@ -213,46 +169,46 @@ class PocketStandardCell: UICollectionViewCell, ReusableCell {
         sponsoredImageCenterConstraint?.isActive = !contentSizeCategory.isAccessibilityCategory
         sponsoredImageFirstBaselineConstraint?.isActive = contentSizeCategory.isAccessibilityCategory
     }
-}
 
-// MARK: - PocketStandardCell Colors based on interface trait
-
-fileprivate extension UIColor {
-    static let defaultTextColor: UIColor = .init { (traits) -> UIColor in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            return UIColor.Photon.LightGrey10
-        default:
-            return UIColor.Photon.DarkGrey90
-        }
+    private func setupShadow(theme: Theme) {
+        contentView.layer.cornerRadius = HomepageViewModel.UX.generalCornerRadius
+        contentView.layer.shadowPath = UIBezierPath(roundedRect: contentView.bounds,
+                                                    cornerRadius: HomepageViewModel.UX.generalCornerRadius).cgPath
+        contentView.layer.shadowRadius = HomepageViewModel.UX.shadowRadius
+        contentView.layer.shadowOffset = HomepageViewModel.UX.shadowOffset
+        contentView.layer.shadowColor = theme.colors.shadowDefault.cgColor
+        contentView.layer.shadowOpacity = HomepageViewModel.UX.shadowOpacity
     }
 
-    static let sponsoredDescriptionColor: UIColor = .init { (traits) -> UIColor in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            return UIColor.Photon.LightGrey80
-        default:
-            return UIColor.Photon.LightGrey90
-        }
-    }
-
-    static let cellBackground: UIColor = .init { (traits) -> UIColor in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            return UIColor.Photon.DarkGrey30
-        default:
-            return .white
-        }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        contentView.layer.shadowPath = UIBezierPath(roundedRect: contentView.bounds,
+                                                    cornerRadius: HomepageViewModel.UX.generalCornerRadius).cgPath
     }
 }
 
-// MARK: - Notifiable
-extension PocketStandardCell: Notifiable {
-    func handleNotifications(_ notification: Notification) {
-        switch notification.name {
-        case .DynamicFontChanged:
-            adjustLayout()
-        default: break
+// MARK: - Blurrable
+extension PocketStandardCell: Blurrable {
+    func adjustBlur(theme: Theme) {
+        // Add blur
+        if shouldApplyWallpaperBlur {
+            contentView.addBlurEffectWithClearBackgroundAndClipping(using: .systemThickMaterial)
+            contentView.layer.cornerRadius = HomepageViewModel.UX.generalCornerRadius
+        } else {
+            contentView.removeVisualEffectView()
+            contentView.backgroundColor = theme.colors.layer5
+            setupShadow(theme: theme)
         }
+    }
+}
+
+// MARK: - ThemeApplicable
+extension PocketStandardCell: ThemeApplicable {
+    func applyTheme(theme: Theme) {
+        titleLabel.textColor = theme.colors.textPrimary
+        descriptionLabel.textColor = theme.colors.textSecondary
+        sponsoredLabel.textColor = theme.colors.textSecondary
+
+        adjustBlur(theme: theme)
     }
 }

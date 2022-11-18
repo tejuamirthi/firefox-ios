@@ -51,9 +51,7 @@ class Authenticator {
 
     static func findMatchingCredentialsForChallenge(_ challenge: URLAuthenticationChallenge, fromLoginsProvider loginsProvider: RustLogins) -> Deferred<Maybe<URLCredential?>> {
         return loginsProvider.getLoginsForProtectionSpace(challenge.protectionSpace) >>== { cursor in
-            guard cursor.count >= 1 else {
-                return deferMaybe(nil)
-            }
+            guard cursor.count >= 1 else { return deferMaybe(nil) }
 
             let logins = cursor.compactMap {
                 // HTTP Auth must have nil formSubmitUrl and a non-nil httpRealm.
@@ -89,8 +87,10 @@ class Authenticator {
             }
 
             // Found a single entry that matches the scheme and host - good to go.
-            else {
+            else if logins.count == 1 {
                 credentials = logins[0].credentials
+            } else {
+                SentryIntegration.shared.send(message: "No logins found for Authenticator", severity: .warning)
             }
 
             return deferMaybe(credentials)

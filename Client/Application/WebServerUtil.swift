@@ -34,7 +34,7 @@ class WebServerUtil {
             InternalSchemeHandler.responders[path] = responder
         }
 
-        if AppConstants.IsRunningTest || AppConstants.IsRunningPerfTest {
+        if AppConstants.isRunningTest {
             registerHandlersForTestMethods(server: webServer.server)
         }
 
@@ -53,7 +53,7 @@ class WebServerUtil {
         // Add tracking protection check page
         server.addHandler(forMethod: "GET",
                           path: "/test-fixture/find-in-page-test.html",
-                          request: GCDWebServerRequest.self) { (request: GCDWebServerRequest?) in
+                          request: GCDWebServerRequest.self) { (_: GCDWebServerRequest?) in
             let node = """
 <span>  And the beast shall come forth surrounded by a roiling cloud of vengeance. \
 The house of the unbelievers shall be razed and they shall be scorched to the earth. \
@@ -89,8 +89,13 @@ of Mammon shall tremble. from The Book of Mozilla, 3:31 (Red Letter Edition) </s
 
     // Make sure to add files to '/test-fixtures' directory in the source tree
     private func addHTMLFixture(name: String, server: GCDWebServer) {
-        if let path = Bundle.main.path(forResource: "test-fixtures/\(name)", ofType: "html") {
-            server.addGETHandler(forPath: "/test-fixture/\(name).html", filePath: path, isAttachment: false, cacheAge: UInt.max, allowRangeRequests: true)
+        if let filePath = Bundle.main.path(forResource: "test-fixtures/\(name)", ofType: "html") {
+            let fileHtml = try? String(contentsOfFile: filePath, encoding: .utf8)
+            server.addHandler(forMethod: "GET",
+                              path: "/test-fixture/\(name).html",
+                              request: GCDWebServerRequest.self) { (request: GCDWebServerRequest?) in
+                return GCDWebServerDataResponse(html: fileHtml!)
+            }
         }
     }
 }

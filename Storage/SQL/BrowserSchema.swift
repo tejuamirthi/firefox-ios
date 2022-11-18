@@ -4,7 +4,6 @@
 
 import Foundation
 import Shared
-import XCGLogger
 
 let _TableBookmarks = "bookmarks"                                      // Removed in v12. Kept for migration.
 let TableBookmarksMirror = "bookmarksMirror"                           // Added in v9.
@@ -660,7 +659,7 @@ open class BrowserSchema: Schema {
             is_deleted IS 0
         """
 
-    // This smushes together remote and local visits. So it goes.
+    // This smashes together remote and local visits. So it goes.
     fileprivate let historyVisitsView = """
         CREATE VIEW view_history_visits AS
         SELECT h.url AS url, max(v.date) AS visitDate, h.domain_id AS domain_id
@@ -1451,10 +1450,10 @@ open class BrowserSchema: Schema {
 
         // Query for the existence of the `tableList` table to determine if we are
         // migrating from an older DB version or if this is just a brand new DB.
-        let sqliteMasterCursor = db.executeQueryUnsafe("SELECT count(*) AS number FROM sqlite_master WHERE type = 'table' AND name = 'tableList'", factory: IntFactory, withArgs: [] as Args)
+        let sqliteMainCursor = db.executeQueryUnsafe("SELECT count(*) AS number FROM sqlite_master WHERE type = 'table' AND name = 'tableList'", factory: IntFactory, withArgs: [] as Args)
 
-        let tableListTableExists = sqliteMasterCursor[0] == 1
-        sqliteMasterCursor.close()
+        let tableListTableExists = sqliteMainCursor[0] == 1
+        sqliteMainCursor.close()
 
         // If `tableList` still exists in this DB, then we need to continue to check if
         // any table-specific migrations are required before removing it. Otherwise, if
@@ -1512,10 +1511,10 @@ open class BrowserSchema: Schema {
     fileprivate func migrateClientsTableFromSchemaTableIfNeeded(_ db: SQLiteDBConnection) -> SchemaUpgradeResult {
         // Query for the existence of the `clients` table to determine if we are
         // migrating from an older DB version or if this is just a brand new DB.
-        let sqliteMasterCursor = db.executeQueryUnsafe("SELECT count(*) AS number FROM sqlite_master WHERE type = 'table' AND name = 'clients'", factory: IntFactory, withArgs: [] as Args)
+        let sqliteMainCursor = db.executeQueryUnsafe("SELECT count(*) AS number FROM sqlite_master WHERE type = 'table' AND name = 'clients'", factory: IntFactory, withArgs: [] as Args)
 
-        let clientsTableExists = sqliteMasterCursor[0] == 1
-        sqliteMasterCursor.close()
+        let clientsTableExists = sqliteMainCursor[0] == 1
+        sqliteMainCursor.close()
 
         guard clientsTableExists else {
             return .skipped
@@ -1561,7 +1560,8 @@ open class BrowserSchema: Schema {
     }
 
     fileprivate func fillDomainNamesFromCursor(_ cursor: Cursor<String>, db: SQLiteDBConnection) -> Bool {
-        if cursor.count == 0 {
+        let cursorCount = cursor.count
+        if cursorCount == 0 {
             return true
         }
 

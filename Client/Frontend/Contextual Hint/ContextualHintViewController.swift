@@ -25,7 +25,7 @@ class ContextualHintViewController: UIViewController, OnViewDismissable {
     }
 
     private lazy var closeButton: UIButton = .build { [weak self] button in
-        button.setImage(UIImage(named: "find_close")?.withRenderingMode(.alwaysTemplate),
+        button.setImage(UIImage(named: ImageIdentifiers.contextualHintClose)?.withRenderingMode(.alwaysTemplate),
                         for: .normal)
         button.tintColor = .white
         button.addTarget(self,
@@ -35,6 +35,7 @@ class ContextualHintViewController: UIViewController, OnViewDismissable {
                                                 left: 7.5,
                                                 bottom: 15,
                                                 right: 7.5)
+        button.accessibilityLabel = String.ContextualHints.ContextualHintsCloseAccessibility
     }
 
     private lazy var descriptionLabel: UILabel = .build { [weak self] label in
@@ -76,6 +77,7 @@ class ContextualHintViewController: UIViewController, OnViewDismissable {
 
     // MARK: - Properties
     private var viewModel: ContextualHintViewModel
+
     private var onViewSummoned: (() -> Void)?
     var onViewDismissed: (() -> Void)?
     private var onActionTapped: (() -> Void)?
@@ -86,18 +88,23 @@ class ContextualHintViewController: UIViewController, OnViewDismissable {
 
     private var popupContentHeight: CGFloat {
         let spacingWidth = UX.labelLeading + UX.closeButtonSize.width + UX.closeButtonTrailing + UX.labelTrailing
+
         let labelHeight = descriptionLabel.heightForLabel(
             descriptionLabel,
             width: containerView.frame.width - spacingWidth,
-            text: viewModel.descriptionText(arrowDirection: viewModel.arrowDirection))
+            text: viewModel.getCopyFor(.description)
+        )
 
         switch viewModel.isActionType() {
         case true:
             guard let titleLabel = actionButton.titleLabel else { fallthrough }
+
             let buttonHeight = titleLabel.heightForLabel(
                 titleLabel,
                 width: containerView.frame.width - spacingWidth,
-                text: viewModel.buttonActionText())
+                text: viewModel.getCopyFor(.action)
+            )
+
             return buttonHeight + labelHeight + UX.labelTop + UX.labelBottom
 
         case false:
@@ -216,7 +223,7 @@ class ContextualHintViewController: UIViewController, OnViewDismissable {
     }
 
     private func setupContent() {
-        descriptionLabel.text = viewModel.descriptionText(arrowDirection: viewModel.arrowDirection)
+        descriptionLabel.text = viewModel.getCopyFor(.description)
 
         if viewModel.isActionType() {
 
@@ -228,7 +235,7 @@ class ContextualHintViewController: UIViewController, OnViewDismissable {
             ]
 
             let attributeString = NSMutableAttributedString(
-                string: viewModel.buttonActionText(),
+                string: viewModel.getCopyFor(.action),
                 attributes: textAttributes
             )
 
@@ -251,11 +258,11 @@ class ContextualHintViewController: UIViewController, OnViewDismissable {
     }
 
     // MARK: - Interface
-    public func shouldPresentHint() -> Bool {
+    func shouldPresentHint() -> Bool {
         return viewModel.shouldPresentContextualHint()
     }
 
-    public func configure(
+    func configure(
         anchor: UIView,
         withArrowDirection arrowDirection: UIPopoverArrowDirection,
         andDelegate delegate: UIPopoverPresentationControllerDelegate,
@@ -281,13 +288,19 @@ class ContextualHintViewController: UIViewController, OnViewDismissable {
         if viewModel.shouldPresentContextualHint() && shouldStartTimer {
             viewModel.startTimer()
         }
+
+        viewModel.markContextualHintConfiguration(configured: true)
     }
 
-    public func stopTimer() {
+    func unconfigure() {
+        viewModel.markContextualHintConfiguration(configured: false)
+    }
+
+    func stopTimer() {
         viewModel.stopTimer()
     }
 
-    public func startTimer() {
+    func startTimer() {
         viewModel.startTimer()
     }
 }

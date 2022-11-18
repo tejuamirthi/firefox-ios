@@ -90,6 +90,12 @@ public class SentryIntegration: SentryProtocol {
 
                 return event
             }
+            options.beforeBreadcrumb = { crumb in
+                if crumb.type == "http" || crumb.category == "http" {
+                    return nil
+                }
+                return crumb
+            }
         }
         enabled = true
 
@@ -190,7 +196,7 @@ public class SentryIntegration: SentryProtocol {
      */
     private func shouldSendEventFor(_ severity: SentryLevel) -> Bool {
         let shouldSendRelease = AppConstants.BuildChannel == .release && severity.rawValue >= SentryLevel.fatal.rawValue
-        let shouldSendBeta = AppConstants.BuildChannel == .beta && severity.rawValue >= SentryLevel.info.rawValue
+        let shouldSendBeta = AppConstants.BuildChannel == .beta && severity.rawValue >= SentryLevel.fatal.rawValue
 
         return shouldSendBeta || shouldSendRelease
     }

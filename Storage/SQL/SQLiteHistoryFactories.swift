@@ -38,8 +38,8 @@ extension SQLiteHistory {
 
     class func iconColumnFactory(_ row: SDRow) -> Favicon? {
         if let iconURL = row["iconURL"] as? String,
-            let iconDate = row["iconDate"] as? Double,
-            let _ = row["iconID"] as? Int {
+           let iconDate = row["iconDate"] as? Double,
+           row["iconID"] as? Int != nil {
                 let date = Date(timeIntervalSince1970: iconDate)
                 return Favicon(url: iconURL, date: date)
         }
@@ -47,9 +47,7 @@ extension SQLiteHistory {
     }
 
     class func pageMetadataColumnFactory(_ row: SDRow) -> PageMetadata? {
-        guard let siteURL = row["url"] as? String else {
-            return nil
-        }
+        guard let siteURL = row["url"] as? String else { return nil }
 
         return PageMetadata(
             id: row["metadata_id"] as? Int,
@@ -77,5 +75,9 @@ extension SQLiteHistory {
         let site = basicHistoryColumnFactory(row)
         site.metadata = pageMetadataColumnFactory(row)
         return site
+    }
+
+    class func countAllVisitsFactory(_ row: SDRow) -> Int? {
+        return row[0] as? Int
     }
 }

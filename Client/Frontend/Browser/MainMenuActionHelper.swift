@@ -7,6 +7,7 @@ import Foundation
 import Shared
 import Storage
 import UIKit
+import SwiftUI
 
 protocol ToolBarActionMenuDelegate: AnyObject {
     func updateToolbarState()
@@ -49,7 +50,9 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
     private let tabUrl: URL?
     private let isFileURL: Bool
     private let showFXASyncAction: (FXASyncClosure) -> Void
+    private let themeManager: ThemeManager
 
+    var bookmarksHandler: BookmarksHandler
     let profile: Profile
     let tabManager: TabManager
 
@@ -65,9 +68,11 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
     init(profile: Profile,
          tabManager: TabManager,
          buttonView: UIButton,
-         showFXASyncAction: @escaping (FXASyncClosure) -> Void) {
+         showFXASyncAction: @escaping (FXASyncClosure) -> Void,
+         themeManager: ThemeManager = AppContainer.shared.resolve()) {
 
         self.profile = profile
+        self.bookmarksHandler = profile.places
         self.tabManager = tabManager
         self.buttonView = buttonView
         self.showFXASyncAction = showFXASyncAction
@@ -76,6 +81,7 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
         self.tabUrl = selectedTab?.url
         self.isFileURL = tabUrl?.isFileURL ?? false
         self.isHomePage = selectedTab?.isFxHomeTab ?? false
+        self.themeManager = themeManager
     }
 
     func getToolbarActions(navigationController: UINavigationController?,
@@ -278,6 +284,7 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
 
             let shouldFocusLocationField = NewTabAccessors.getNewTabPage(self.profile.prefs) == .blankPage
             self.delegate?.openBlankNewTab(focusLocationField: shouldFocusLocationField, isPrivate: false, searchFor: nil)
+            TelemetryWrapper.recordEvent(category: .action, method: .tap, object: .createNewTab)
         }.items
     }
 
@@ -285,6 +292,7 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
         return SingleActionViewModel(title: .AppMenu.AppMenuHistory,
                                      iconString: ImageIdentifiers.history) { _ in
             self.delegate?.showLibrary(panel: .history)
+            TelemetryWrapper.recordEvent(category: .action, method: .tap, object: .viewHistoryPanel)
         }.items
     }
 
@@ -292,6 +300,7 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
         return SingleActionViewModel(title: .AppMenu.AppMenuDownloads,
                                      iconString: ImageIdentifiers.downloads) { _ in
             self.delegate?.showLibrary(panel: .downloads)
+            TelemetryWrapper.recordEvent(category: .action, method: .tap, object: .viewDownloadsPanel)
         }.items
     }
 
@@ -346,12 +355,19 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
     private func getSendToDevice() -> PhotonRowActions {
         return SingleActionViewModel(title: .AppMenu.TouchActions.SendLinkToDeviceTitle,
                                      iconString: ImageIdentifiers.sendToDevice) { _ in
-            guard let bvc = self.menuActionDelegate as? InstructionsViewControllerDelegate & DevicePickerViewControllerDelegate else { return }
+            guard let bvc = self.menuActionDelegate as? InstructionsViewDelegate & DevicePickerViewControllerDelegate
+            else { return }
 
             if !self.profile.hasAccount() {
-                let instructionsViewController = InstructionsViewController()
-                instructionsViewController.delegate = bvc
-                let navigationController = UINavigationController(rootViewController: instructionsViewController)
+                let colors = self.themeManager.currentTheme.colors
+                let instructionsView = InstructionsView(backgroundColor: colors.layer1,
+                                                        textColor: colors.textPrimary,
+                                                        imageColor: colors.iconPrimary,
+                                                        dismissAction: {
+                    bvc.dismissInstructionsView()
+                })
+                let hostingViewController = UIHostingController(rootView: instructionsView)
+                let navigationController = UINavigationController(rootViewController: hostingViewController)
                 navigationController.modalPresentationStyle = .formSheet
                 self.delegate?.showViewController(viewController: navigationController)
                 return
@@ -442,13 +458,15 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
 
             // If we've enabled night mode and the theme is normal, enable dark theme
             if NightModeHelper.isActivated(self.profile.prefs), LegacyThemeManager.instance.currentName == .normal {
-                LegacyThemeManager.instance.current = DarkTheme()
+                LegacyThemeManager.instance.current = LegacyDarkTheme()
+                self.themeManager.changeCurrentTheme(.dark)
                 NightModeHelper.setEnabledDarkTheme(self.profile.prefs, darkTheme: true)
             }
 
             // If we've disabled night mode and dark theme was activated by it then disable dark theme
             if !NightModeHelper.isActivated(self.profile.prefs), NightModeHelper.hasEnabledDarkTheme(self.profile.prefs), LegacyThemeManager.instance.currentName == .dark {
-                LegacyThemeManager.instance.current = NormalTheme()
+                LegacyThemeManager.instance.current = LegacyNormalTheme()
+                self.themeManager.changeCurrentTheme(.light)
                 NightModeHelper.setEnabledDarkTheme(self.profile.prefs, darkTheme: false)
             }
         }.items
@@ -458,7 +476,7 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
     }
 
     private func syncMenuButton(showFxA: @escaping (FXASyncClosure) -> Void) -> PhotonRowActions? {
-        let action: ((SingleActionViewModel) -> Void) = { action in
+        let action: (SingleActionViewModel) -> Void = { action in
             let fxaParams = FxALaunchParams(query: ["entrypoint": "browsermenu"])
             let params = FXASyncClosure(fxaParams, .emailLoginFlow, .appMenu)
             showFxA(params)
@@ -469,7 +487,7 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
         let needsReAuth = rustAccount.accountNeedsReauth()
 
         guard let userProfile = rustAccount.userProfile else {
-            return SingleActionViewModel(title: .AppMenu.AppMenuBackUpAndSyncData,
+            return SingleActionViewModel(title: .AppMenu.SyncAndSaveData,
                                          iconString: ImageIdentifiers.sync,
                                          tapHandler: action).items
         }
@@ -541,7 +559,7 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
                                      iconString: ImageIdentifiers.share) { _ in
 
             guard let tab = self.selectedTab,
-                  let url = tab.canonicalURL?.displayURL,
+                  let url = tab.url,
                   let presentableVC = self.menuActionDelegate as? PresentableVC
             else { return }
 
@@ -639,7 +657,7 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
                   let record = self.profile.readingList.getRecordWithURL(url).value.successValue
             else { return }
 
-            self.profile.readingList.deleteRecord(record)
+            self.profile.readingList.deleteRecord(record, completion: nil)
             self.delegate?.showToast(message: .AppMenu.RemoveFromReadingListConfirmMessage, toastAction: .removeFromReadingList, url: nil)
             TelemetryWrapper.recordEvent(category: .action, method: .delete, object: .readingListItem, value: .pageActionMenu)
         }
@@ -754,7 +772,7 @@ class MainMenuActionHelper: PhotonActionSheetProtocol, FeatureFlaggable, CanRemo
 
     // MARK: Password
 
-    typealias NavigationHandlerType = ((_ url: URL?) -> Void)
+    typealias NavigationHandlerType = (_ url: URL?) -> Void
     private func getPasswordAction(navigationController: UINavigationController?) -> PhotonRowActions? {
         guard LoginListViewController.shouldShowAppMenuShortcut(forPrefs: profile.prefs),
               let navigationController = navigationController

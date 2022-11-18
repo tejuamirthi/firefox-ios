@@ -5,7 +5,6 @@
 import UIKit
 import Shared
 import Storage
-import XCGLogger
 import SwiftyJSON
 
 private let log = Logger.syncLogger
@@ -111,6 +110,8 @@ open class ClientsSynchronizer: TimestampedSingleCollectionSynchronizer, Synchro
     }
 
     var localClients: RemoteClientsAndTabs?
+    // Indicates whether the local client record has been updated to used the
+    // FxA Device ID rather than the native client GUID
     var clientGuidIsMigrated: Bool = false
 
     override var storageVersion: Int {
@@ -118,12 +119,12 @@ open class ClientsSynchronizer: TimestampedSingleCollectionSynchronizer, Synchro
     }
 
     var clientRecordLastUpload: Timestamp {
-        set(value) {
-            self.prefs.setLong(value, forKey: "lastClientUpload")
-        }
-
         get {
             return self.prefs.unsignedLongForKey("lastClientUpload") ?? 0
+        }
+
+        set(value) {
+            self.prefs.setLong(value, forKey: "lastClientUpload")
         }
     }
 
@@ -303,8 +304,7 @@ open class ClientsSynchronizer: TimestampedSingleCollectionSynchronizer, Synchro
     fileprivate func applyStorageResponse(
         _ response: StorageResponse<[Record<ClientPayload>]>,
         toLocalClients localClients: RemoteClientsAndTabs,
-        withServer storageClient: Sync15CollectionClient<ClientPayload>,
-        notifier: CollectionChangedNotifier?
+        withServer storageClient: Sync15CollectionClient<ClientPayload>
     ) -> Success {
         log.debug("Applying clients response.")
 
@@ -320,6 +320,10 @@ open class ClientsSynchronizer: TimestampedSingleCollectionSynchronizer, Synchro
         var toInsert = [RemoteClient]()
         var ours: Record<ClientPayload>?
 
+        // Indicates whether the local client records include a record with an ID
+        // matching the FxA Device ID
+        var ourClientRecordExists: Bool = false
+
         for (rec) in records {
             guard rec.payload.isValid() else {
                 log.warning("Client record \(rec.id) is invalid. Skipping.")
@@ -333,6 +337,7 @@ open class ClientsSynchronizer: TimestampedSingleCollectionSynchronizer, Synchro
                     SentryIntegration.shared.send(message: "An unmigrated client record was found with a GUID for an ID", tag: SentryTag.clientSynchronizer, severity: .error)
                 }
             } else if rec.id == ourFxaDeviceId {
+                ourClientRecordExists = true
                 if rec.modified == self.clientRecordLastUpload {
                     log.debug("Skipping our own unmodified record.")
                 } else {
@@ -358,9 +363,8 @@ open class ClientsSynchronizer: TimestampedSingleCollectionSynchronizer, Synchro
             }
             >>== { self.processCommandsFromRecord(ours, withServer: storageClient) }
             >>== { (shouldUpload, commands) in
-                let isFirstSync = self.lastFetched == 0
                 let ourRecordDidChange = self.why == .didLogin || self.why == .clientNameChanged
-                return self.maybeUploadOurRecord(shouldUpload || ourRecordDidChange || self.clientGuidIsMigrated, ifUnmodifiedSince: ours?.modified, toServer: storageClient)
+                return self.maybeUploadOurRecord(shouldUpload || ourRecordDidChange || self.clientGuidIsMigrated || !ourClientRecordExists, ifUnmodifiedSince: ours?.modified, toServer: storageClient)
                     >>> { self.uploadClientCommands(toLocalClients: localClients, withServer: storageClient) }
                     >>> {
                         log.debug("Running \(commands.count) commands.")
@@ -368,16 +372,12 @@ open class ClientsSynchronizer: TimestampedSingleCollectionSynchronizer, Synchro
                             _ = command.run(self)
                         }
                         self.lastFetched = responseTimestamp!
-                        if isFirstSync,
-                           let notifier = notifier {
-                            DispatchQueue.global(qos: DispatchQoS.background.qosClass).async { _ = notifier.notifyAll(collectionsChanged: ["clients"], reason: "firstsync") }
-                        }
                         return succeed()
                 }
         }
     }
 
-    open func synchronizeLocalClients(_ localClients: RemoteClientsAndTabs, withServer storageClient: Sync15StorageClient, info: InfoCollections, notifier: CollectionChangedNotifier?) -> SyncResult {
+    open func synchronizeLocalClients(_ localClients: RemoteClientsAndTabs, withServer storageClient: Sync15StorageClient, info: InfoCollections) -> SyncResult {
         log.debug("Synchronizing clients.")
         self.localClients = localClients // Store for later when we process a repairResponse command
 
@@ -413,7 +413,7 @@ open class ClientsSynchronizer: TimestampedSingleCollectionSynchronizer, Synchro
             >>== { response in
                 return self.maybeDeleteClients(response: response, withServer: storageClient)
                     >>> { self.wipeIfNecessary(localClients)
-                                >>> { self.applyStorageResponse(response, toLocalClients: localClients, withServer: clientsClient, notifier: notifier) }
+                                >>> { self.applyStorageResponse(response, toLocalClients: localClients, withServer: clientsClient) }
                     }
 
             }

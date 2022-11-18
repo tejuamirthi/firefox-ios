@@ -3,37 +3,56 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import Foundation
+import Storage
 
 /// A cell used in FxHomeScreen's Recently Saved section. It holds bookmarks and reading list items.
-class RecentlySavedCell: UICollectionViewCell, ReusableCell, NotificationThemeable {
+class RecentlySavedCell: UICollectionViewCell, ReusableCell {
 
     private struct UX {
-        static let generalCornerRadius: CGFloat = 12
-        static let bookmarkTitleMaxFontSize: CGFloat = 43
+        static let bookmarkTitleFontSize: CGFloat = 12
+        static let containerSpacing: CGFloat = 16
+        static let heroImageSize: CGSize = CGSize(width: 126, height: 82)
+        static let fallbackFaviconSize = CGSize(width: 36, height: 36)
         static let generalSpacing: CGFloat = 8
-        static let heroImageSize: CGSize = CGSize(width: 150, height: 92)
-        static let shadowRadius: CGFloat = 4
-        static let shadowOffset: CGFloat = 2
     }
 
     // MARK: - UI Elements
-    let heroImage: UIImageView = .build { imageView in
+    private var rootContainer: UIView = .build { view in
+        view.backgroundColor = .clear
+        view.layer.cornerRadius = HomepageViewModel.UX.generalCornerRadius
+    }
+
+    // Contains the hero image and fallback favicons
+    private var imageContainer: UIView = .build { view in
+        view.backgroundColor = .clear
+    }
+
+    let heroImageView: UIImageView = .build { imageView in
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
         imageView.layer.masksToBounds = true
-        imageView.layer.cornerRadius = UX.generalCornerRadius
-        imageView.backgroundColor = .systemBackground
+        imageView.layer.cornerRadius = HomepageViewModel.UX.generalCornerRadius
+    }
+
+    // Used as a fallback if hero image isn't set
+    private let fallbackFaviconImage: UIImageView = .build { imageView in
+        imageView.contentMode = .scaleAspectFit
+        imageView.clipsToBounds = true
+        imageView.backgroundColor = .clear
+        imageView.layer.cornerRadius = HomepageViewModel.UX.generalIconCornerRadius
+        imageView.layer.masksToBounds = true
+    }
+
+    private var fallbackFaviconBackground: UIView = .build { view in
+        view.layer.cornerRadius = HomepageViewModel.UX.generalCornerRadius
+        view.layer.borderWidth = HomepageViewModel.UX.generalBorderWidth
     }
 
     let itemTitle: UILabel = .build { label in
-        label.font = DynamicFontHelper.defaultHelper.preferredFont(withTextStyle: .caption1,
-                                                                   maxSize: UX.bookmarkTitleMaxFontSize)
+        label.font = DynamicFontHelper.defaultHelper.preferredFont(withTextStyle: .body,
+                                                                   size: UX.bookmarkTitleFontSize)
         label.adjustsFontForContentSizeCategory = true
-        label.textColor = .label
     }
-
-    // MARK: - Variables
-    var notificationCenter: NotificationCenter = NotificationCenter.default
 
     // MARK: - Inits
 
@@ -41,72 +60,144 @@ class RecentlySavedCell: UICollectionViewCell, ReusableCell, NotificationThemeab
         super.init(frame: .zero)
 
         setupLayout()
-        setupNotifications(forObserver: self,
-                           observing: [.DisplayThemeChanged])
-        applyTheme()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {
-        notificationCenter.removeObserver(self)
-    }
-
     override func prepareForReuse() {
         super.prepareForReuse()
 
-        heroImage.image = nil
+        heroImageView.image = nil
+        fallbackFaviconImage.image = nil
         itemTitle.text = nil
-        applyTheme()
+        setFallBackFaviconVisibility(isHidden: false)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        rootContainer.layer.shadowPath = UIBezierPath(roundedRect: rootContainer.bounds,
+                                                      cornerRadius: HomepageViewModel.UX.generalCornerRadius).cgPath
+    }
+
+    func configure(viewModel: RecentlySavedCellViewModel, theme: Theme) {
+        configureImages(heroImage: viewModel.heroImage, favIconImage: viewModel.favIconImage)
+
+        itemTitle.text = viewModel.site.title
+        applyTheme(theme: theme)
+    }
+
+    private func configureImages(heroImage: UIImage?, favIconImage: UIImage?) {
+        if heroImage == nil {
+            // Sets a small favicon in place of the hero image in case there's no hero image
+            fallbackFaviconImage.image = favIconImage
+        } else if heroImage?.size.width == heroImage?.size.height {
+            // If hero image is a square use it as a favicon
+            fallbackFaviconImage.image = heroImage
+        } else {
+            setFallBackFaviconVisibility(isHidden: true)
+            heroImageView.image = heroImage
+        }
+    }
+
+    private func setFallBackFaviconVisibility(isHidden: Bool) {
+        fallbackFaviconBackground.isHidden = isHidden
+        fallbackFaviconImage.isHidden = isHidden
+
+        heroImageView.isHidden = !isHidden
     }
 
     // MARK: - Helpers
 
     private func setupLayout() {
-        contentView.layer.shadowColor = UIColor.theme.homePanel.shortcutShadowColor
-        contentView.layer.shadowOpacity = UIColor.theme.homePanel.shortcutShadowOpacity
-        contentView.layer.shadowOffset = CGSize(width: 0, height: UX.shadowOffset)
-        contentView.layer.cornerRadius = UX.generalCornerRadius
-        let shadowRect = CGRect(width: UX.heroImageSize.width, height: UX.heroImageSize.height)
-        contentView.layer.shadowPath = UIBezierPath(rect: shadowRect).cgPath
-        contentView.layer.shadowRadius = UX.shadowRadius
+        contentView.backgroundColor = .clear
 
-        contentView.addSubviews(heroImage, itemTitle)
+        fallbackFaviconBackground.addSubviews(fallbackFaviconImage)
+        imageContainer.addSubviews(heroImageView, fallbackFaviconBackground)
+        rootContainer.addSubviews(imageContainer, itemTitle)
+        contentView.addSubview(rootContainer)
 
         NSLayoutConstraint.activate([
-            heroImage.topAnchor.constraint(equalTo: contentView.topAnchor),
-            heroImage.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            heroImage.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            heroImage.heightAnchor.constraint(equalToConstant: UX.heroImageSize.height),
-            heroImage.widthAnchor.constraint(equalToConstant: UX.heroImageSize.width),
+            rootContainer.topAnchor.constraint(equalTo: contentView.topAnchor),
+            rootContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            rootContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            rootContainer.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            itemTitle.topAnchor.constraint(equalTo: heroImage.bottomAnchor, constant: UX.generalSpacing),
-            itemTitle.leadingAnchor.constraint(equalTo: heroImage.leadingAnchor),
-            itemTitle.trailingAnchor.constraint(equalTo: heroImage.trailingAnchor),
-            itemTitle.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+            // Image container, hero image and fallback
+
+            imageContainer.topAnchor.constraint(equalTo: rootContainer.topAnchor,
+                                                constant: UX.containerSpacing),
+            imageContainer.leadingAnchor.constraint(equalTo: rootContainer.leadingAnchor,
+                                                    constant: UX.containerSpacing),
+            imageContainer.trailingAnchor.constraint(equalTo: rootContainer.trailingAnchor,
+                                                     constant: -UX.containerSpacing),
+            imageContainer.heightAnchor.constraint(equalToConstant: UX.heroImageSize.height),
+            imageContainer.widthAnchor.constraint(equalToConstant: UX.heroImageSize.width),
+
+            heroImageView.topAnchor.constraint(equalTo: imageContainer.topAnchor),
+            heroImageView.leadingAnchor.constraint(equalTo: imageContainer.leadingAnchor),
+            heroImageView.trailingAnchor.constraint(equalTo: imageContainer.trailingAnchor),
+            heroImageView.bottomAnchor.constraint(equalTo: imageContainer.bottomAnchor),
+
+            itemTitle.topAnchor.constraint(equalTo: heroImageView.bottomAnchor,
+                                           constant: UX.generalSpacing),
+            itemTitle.leadingAnchor.constraint(equalTo: heroImageView.leadingAnchor),
+            itemTitle.trailingAnchor.constraint(equalTo: heroImageView.trailingAnchor),
+            itemTitle.bottomAnchor.constraint(equalTo: rootContainer.bottomAnchor,
+                                              constant: -UX.generalSpacing),
+
+            fallbackFaviconBackground.centerXAnchor.constraint(equalTo: imageContainer.centerXAnchor),
+            fallbackFaviconBackground.centerYAnchor.constraint(equalTo: imageContainer.centerYAnchor),
+            fallbackFaviconBackground.heightAnchor.constraint(equalToConstant: UX.heroImageSize.height),
+            fallbackFaviconBackground.widthAnchor.constraint(equalToConstant: UX.heroImageSize.width),
+
+            fallbackFaviconImage.heightAnchor.constraint(equalToConstant: UX.fallbackFaviconSize.height),
+            fallbackFaviconImage.widthAnchor.constraint(equalToConstant: UX.fallbackFaviconSize.width),
+            fallbackFaviconImage.centerXAnchor.constraint(equalTo: fallbackFaviconBackground.centerXAnchor),
+            fallbackFaviconImage.centerYAnchor.constraint(equalTo: fallbackFaviconBackground.centerYAnchor),
+
+            itemTitle.topAnchor.constraint(equalTo: heroImageView.bottomAnchor,
+                                           constant: UX.generalSpacing),
+            itemTitle.leadingAnchor.constraint(equalTo: heroImageView.leadingAnchor),
+            itemTitle.trailingAnchor.constraint(equalTo: heroImageView.trailingAnchor),
+            itemTitle.bottomAnchor.constraint(equalTo: rootContainer.bottomAnchor,
+                                              constant: -UX.generalSpacing)
         ])
     }
 
-    func applyTheme() {
-        if LegacyThemeManager.instance.currentName == .dark {
-            itemTitle.textColor = UIColor.Photon.LightGrey10
-        } else {
-            itemTitle.textColor = UIColor.Photon.DarkGrey90
-        }
-    }
+    private func setupShadow(theme: Theme) {
+        rootContainer.layer.shadowPath = UIBezierPath(roundedRect: rootContainer.bounds,
+                                                      cornerRadius: HomepageViewModel.UX.generalCornerRadius).cgPath
 
+        rootContainer.layer.shadowColor = theme.colors.shadowDefault.cgColor
+        rootContainer.layer.shadowOpacity = HomepageViewModel.UX.shadowOpacity
+        rootContainer.layer.shadowOffset = HomepageViewModel.UX.shadowOffset
+        rootContainer.layer.shadowRadius = HomepageViewModel.UX.shadowRadius
+    }
 }
 
-// MARK: - Notifiable
-extension RecentlySavedCell: Notifiable {
-    func handleNotifications(_ notification: Notification) {
-        switch notification.name {
-        case .DisplayThemeChanged:
-            applyTheme()
-        default:
-            break
+// MARK: - ThemeApplicable
+extension RecentlySavedCell: ThemeApplicable {
+    func applyTheme(theme: Theme) {
+        itemTitle.textColor = theme.colors.textPrimary
+        fallbackFaviconBackground.backgroundColor = theme.colors.layer1
+        fallbackFaviconBackground.layer.borderColor = theme.colors.layer1.cgColor
+
+        adjustBlur(theme: theme)
+    }
+}
+
+// MARK: - Blurrable
+extension RecentlySavedCell: Blurrable {
+    func adjustBlur(theme: Theme) {
+        // If blur is disabled set background color
+        if shouldApplyWallpaperBlur {
+            rootContainer.addBlurEffectWithClearBackgroundAndClipping(using: .systemThickMaterial)
+        } else {
+            rootContainer.removeVisualEffectView()
+            rootContainer.backgroundColor = theme.colors.layer5
+            setupShadow(theme: theme)
         }
     }
 }

@@ -11,7 +11,9 @@ import Account
 private class CustomFxAContentServerEnableSetting: BoolSetting {
       init(prefs: Prefs, settingDidChange: ((Bool?) -> Void)? = nil) {
           super.init(
-              prefs: prefs, prefKey: PrefsKeys.KeyUseCustomFxAContentServer, defaultValue: false,
+              prefs: prefs,
+              prefKey: PrefsKeys.KeyUseCustomFxAContentServer,
+              defaultValue: false,
               attributedTitleText: NSAttributedString(string: .SettingsAdvancedAccountUseCustomFxAContentServerURITitle),
               settingDidChange: settingDidChange
           )
@@ -21,7 +23,9 @@ private class CustomFxAContentServerEnableSetting: BoolSetting {
   private class CustomSyncTokenServerEnableSetting: BoolSetting {
       init(prefs: Prefs, settingDidChange: ((Bool?) -> Void)? = nil) {
           super.init(
-              prefs: prefs, prefKey: PrefsKeys.KeyUseCustomSyncTokenServerOverride, defaultValue: false,
+              prefs: prefs,
+              prefKey: PrefsKeys.KeyUseCustomSyncTokenServerOverride,
+              defaultValue: false,
               attributedTitleText: NSAttributedString(string: .SettingsAdvancedAccountUseCustomSyncTokenServerTitle),
               settingDidChange: settingDidChange
           )
@@ -49,7 +53,6 @@ private class CustomFxAContentServerEnableSetting: BoolSetting {
   }
 
 class AdvancedAccountSettingViewController: SettingsTableViewController {
-    fileprivate let SectionHeaderIdentifier = "SectionHeaderIdentifier"
     fileprivate var customFxAContentURI: String?
     fileprivate var customSyncTokenServerURI: String?
 
@@ -68,13 +71,14 @@ class AdvancedAccountSettingViewController: SettingsTableViewController {
     override func generateSettings() -> [SettingSection] {
         let prefs = profile.prefs
 
+        let attributes = [NSAttributedString.Key.foregroundColor: themeManager.currentTheme.colors.textPrimary]
         let useStage = BoolSetting(
             prefs: prefs,
             prefKey: PrefsKeys.UseStageServer,
             defaultValue: false,
             attributedTitleText: NSAttributedString(
                 string: .AdvancedAccountUseStageServer,
-                attributes: [NSAttributedString.Key.foregroundColor: UIColor.theme.tableView.rowText])) { isOn in
+                attributes: attributes)) { isOn in
             self.settings = self.generateSettings()
             self.tableView.reloadData()
         }
@@ -112,7 +116,8 @@ class AdvancedAccountSettingViewController: SettingsTableViewController {
     }
 
     override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        let headerView = tableView.dequeueReusableHeaderFooterView(withIdentifier: SectionHeaderIdentifier) as! ThemedTableSectionHeaderFooterView
+        guard let headerView = tableView.dequeueReusableHeaderFooterView(withIdentifier: ThemedTableSectionHeaderFooterView.cellIdentifier) as? ThemedTableSectionHeaderFooterView else { return nil }
+
         let sectionSetting = settings[section]
         headerView.titleLabel.text = sectionSetting.title?.string
 

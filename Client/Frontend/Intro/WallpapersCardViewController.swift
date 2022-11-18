@@ -14,7 +14,7 @@ class WallpaperCardViewController: OnboardingCardViewController {
         static let collectionViewRadius: CGFloat = 8
     }
 
-    var wallpaperManager: WallpaperManager
+    var wallpaperManager: LegacyWallpaperManager
     var selectedWallpaper: Int
     private lazy var wallpaperImageView: UIImageView = .build { _ in }
 
@@ -62,7 +62,7 @@ class WallpaperCardViewController: OnboardingCardViewController {
 
     init(viewModel: OnboardingCardProtocol,
          delegate: OnboardingCardDelegate,
-         wallpaperManager: WallpaperManager = WallpaperManager()) {
+         wallpaperManager: LegacyWallpaperManager = LegacyWallpaperManager()) {
         self.wallpaperManager = wallpaperManager
         self.selectedWallpaper = 0
 
@@ -95,9 +95,10 @@ class WallpaperCardViewController: OnboardingCardViewController {
         ])
         view.sendSubviewToBack(wallpaperImageView)
         collectionView.reloadData()
+        imageView.isHidden = true
     }
 
-    @objc override func primaryAction() {
+    override func primaryAction() {
         wallpaperManager.updateSelectedWallpaperIndex(to: selectedWallpaper)
         super.primaryAction()
     }

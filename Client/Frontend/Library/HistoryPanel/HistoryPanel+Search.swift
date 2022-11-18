@@ -8,9 +8,7 @@ import Shared
 // MARK: - UISearchBarDelegate
 extension HistoryPanel: UISearchBarDelegate {
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-        guard let searchText = searchBar.text, !searchText.isEmpty else {
-            return
-        }
+        guard let searchText = searchBar.text, !searchText.isEmpty else { return }
 
         // Do search and show
         performSearch(term: searchText)
@@ -18,6 +16,8 @@ extension HistoryPanel: UISearchBarDelegate {
     }
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        viewModel.isSearchInProgress = !searchText.isEmpty
+
         guard let searchText = searchBar.text, !searchText.isEmpty else {
             handleEmptySearch()
             return
@@ -28,9 +28,9 @@ extension HistoryPanel: UISearchBarDelegate {
     }
 
     func startSearchState() {
+        updatePanelState(newState: .history(state: .search))
         bottomStackView.isHidden = false
         searchbar.becomeFirstResponder()
-        viewModel.isSearchInProgress = true
     }
 
     func exitSearchState() {
@@ -42,28 +42,18 @@ extension HistoryPanel: UISearchBarDelegate {
     }
 
     func performSearch(term: String) {
-        viewModel.performSearch(term: term.lowercased()) { hasResults in
-            guard hasResults else {
-                self.handleNoResults()
-                return
-            }
-
+        viewModel.performSearch(term: term.lowercased()) { _ in
             self.applySearchSnapshot()
-            self.updateEmptyPanelState()
         }
     }
 
-    private func applySearchSnapshot() {
+    func applySearchSnapshot() {
         // Create search results snapshot and apply
         var snapshot = NSDiffableDataSourceSnapshot<HistoryPanelSections, AnyHashable>()
         snapshot.appendSections([HistoryPanelSections.searchResults])
         snapshot.appendItems(self.viewModel.searchResultSites)
         self.diffableDatasource?.apply(snapshot, animatingDifferences: false)
-    }
-
-    private func handleNoResults() {
-        applySearchSnapshot()
-        updateEmptyPanelState()
+        self.updateEmptyPanelState()
     }
 
     private func handleEmptySearch() {
@@ -78,18 +68,24 @@ extension HistoryPanel: KeyboardHelperDelegate {
     func keyboardHelper(_ keyboardHelper: KeyboardHelper, keyboardWillShowWithState state: KeyboardState) {
         keyboardState = state
         updateLayoutForKeyboard()
-        UIView.animate(withDuration: state.animationDuration, delay: 0,
-                       options: [UIView.AnimationOptions(rawValue: UInt(state.animationCurve.rawValue << 16))], animations: {
-            self.bottomStackView.layoutIfNeeded()
-        })
+        UIView.animate(
+            withDuration: state.animationDuration,
+            delay: 0,
+            options: [UIView.AnimationOptions(rawValue: UInt(state.animationCurve.rawValue << 16))],
+            animations: {
+                self.bottomStackView.layoutIfNeeded()
+            })
     }
 
     func keyboardHelper(_ keyboardHelper: KeyboardHelper, keyboardWillHideWithState state: KeyboardState) {
         keyboardState = nil
         updateLayoutForKeyboard()
-        UIView.animate(withDuration: state.animationDuration, delay: 0,
-                       options: [UIView.AnimationOptions(rawValue: UInt(state.animationCurve.rawValue << 16))], animations: {
-            self.bottomStackView.layoutIfNeeded()
-        })
+        UIView.animate(
+            withDuration: state.animationDuration,
+            delay: 0,
+            options: [UIView.AnimationOptions(rawValue: UInt(state.animationCurve.rawValue << 16))],
+            animations: {
+                self.bottomStackView.layoutIfNeeded()
+            })
     }
 }

@@ -3,7 +3,6 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0
 
 import UIKit
-import SnapKit
 import Shared
 
 class TabToolbar: UIView, FeatureFlaggable {
@@ -31,7 +30,8 @@ class TabToolbar: UIView, FeatureFlaggable {
         return false
     }
 
-    private let privateModeBadge = BadgeWithBackdrop(imageName: "privateModeBadge", backdropCircleColor: UIColor.Defaults.MobilePrivatePurple)
+    private let privateModeBadge = BadgeWithBackdrop(imageName: "privateModeBadge",
+                                                     backdropCircleColor: UIColor.Defaults.MobilePrivatePurple)
     private let appMenuBadge = BadgeWithBackdrop(imageName: "menuBadge")
     private let warningMenuBadge = BadgeWithBackdrop(imageName: "menuWarning", imageMask: "warning-mask")
 
@@ -54,6 +54,7 @@ class TabToolbar: UIView, FeatureFlaggable {
 
         contentView.axis = .horizontal
         contentView.distribution = .fillEqually
+        contentView.translatesAutoresizingMaskIntoConstraints = false
     }
 
     required init(coder aDecoder: NSCoder) {
@@ -67,10 +68,12 @@ class TabToolbar: UIView, FeatureFlaggable {
         appMenuBadge.layout(onButton: appMenuButton)
         warningMenuBadge.layout(onButton: appMenuButton)
 
-        contentView.snp.makeConstraints { make in
-            make.leading.trailing.top.equalTo(self)
-            make.bottom.equalTo(self.safeArea.bottom)
-        }
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+        ])
         super.updateConstraints()
     }
 

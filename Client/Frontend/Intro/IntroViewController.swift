@@ -6,24 +6,25 @@ import Foundation
 import UIKit
 import Shared
 
-class IntroViewController: UIViewController, OnViewDismissable {
-    var onViewDismissed: (() -> Void)?
+class IntroViewController: UIViewController, OnboardingViewControllerProtocol {
+
     private var viewModel: IntroViewModel
     private let profile: Profile
     private var onboardingCards = [OnboardingCardViewController]()
+    var notificationCenter: NotificationProtocol = NotificationCenter.default
+    var didFinishFlow: (() -> Void)?
 
     struct UX {
-        static let closeButtonSize: CGFloat = 44
-        static let closeButtonPadding: CGFloat = 24
+        static let closeButtonSize: CGFloat = 30
+        static let closeHorizontalMargin: CGFloat = 24
+        static let closeVerticalMargin: CGFloat = 20
         static let pageControlHeight: CGFloat = 40
         static let pageControlBottomPadding: CGFloat = 8
     }
 
     // MARK: - Var related to onboarding
     private lazy var closeButton: UIButton = .build { button in
-        let closeImage = UIImage(named: ImageIdentifiers.closeLargeButton)
-        button.setImage(closeImage, for: .normal)
-        button.tintColor = .secondaryLabel
+        button.setImage(UIImage(named: ImageIdentifiers.bottomSheetClose), for: .normal)
         button.addTarget(self, action: #selector(self.closeOnboarding), for: .touchUpInside)
         button.accessibilityIdentifier = AccessibilityIdentifiers.Onboarding.closeButton
     }
@@ -44,48 +45,47 @@ class IntroViewController: UIViewController, OnViewDismissable {
         pageControl.accessibilityIdentifier = AccessibilityIdentifiers.Onboarding.pageControl
     }
 
-    // Closure delegate
-    var didFinishClosure: ((IntroViewController, FxAPageType?) -> Void)?
-
     // MARK: Initializer
     init(viewModel: IntroViewModel, profile: Profile) {
         self.viewModel = viewModel
         self.profile = profile
         super.init(nibName: nil, bundle: nil)
+
+        setupLayout()
+        setupNotifications(forObserver: self,
+                                   observing: [.DisplayThemeChanged])
+        applyTheme()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        notificationCenter.removeObserver(self)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        view.backgroundColor = UIColor.theme.browser.background
         setupPageController()
-        setupLayout()
-    }
-
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        onViewDismissed?()
-        onViewDismissed = nil
     }
 
     // MARK: View setup
     private func setupPageController() {
         // Create onboarding card views
         var cardViewController: OnboardingCardViewController
-        for (index, cardType) in viewModel.enabledCards.enumerated() {
-            let viewModel = viewModel.getCardViewModel(index: index)
-            if cardType == .wallpapers {
-                cardViewController = WallpaperCardViewController(viewModel: viewModel,
-                                                                 delegate: self)
-            } else {
-                cardViewController = OnboardingCardViewController(viewModel: viewModel,
-                                                                  delegate: self)
+        for cardType in viewModel.enabledCards {
+            if let viewModel = viewModel.getCardViewModel(cardType: cardType) {
+                if cardType == .wallpapers {
+                    cardViewController = WallpaperCardViewController(viewModel: viewModel,
+                                                                     delegate: self)
+                } else {
+                    cardViewController = OnboardingCardViewController(viewModel: viewModel,
+                                                                      delegate: self)
+                }
+                onboardingCards.append(cardViewController)
             }
-            onboardingCards.append(cardViewController)
         }
 
         if let firstViewController = onboardingCards.first {
@@ -108,40 +108,40 @@ class IntroViewController: UIViewController, OnViewDismissable {
                                                 constant: -UX.pageControlBottomPadding),
             pageControl.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
-            closeButton.topAnchor.constraint(equalTo: view.topAnchor, constant: UX.closeButtonPadding),
-            closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -UX.closeButtonPadding),
+            closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor,
+                                             constant: UX.closeVerticalMargin),
+            closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor,
+                                                  constant: -UX.closeHorizontalMargin),
             closeButton.widthAnchor.constraint(equalToConstant: UX.closeButtonSize),
-            closeButton.heightAnchor.constraint(equalToConstant: UX.closeButtonSize)
+            closeButton.heightAnchor.constraint(equalToConstant: UX.closeButtonSize),
         ])
     }
 
     @objc private func closeOnboarding() {
-        didFinishClosure?(self, nil)
+        didFinishFlow?()
         viewModel.sendCloseButtonTelemetry(index: pageControl.currentPage)
     }
 
-    private func getNextOnboardingCard(index: Int, goForward: Bool) -> OnboardingCardViewController? {
+    func getNextOnboardingCard(index: Int, goForward: Bool) -> OnboardingCardViewController? {
         guard let index = viewModel.getNextIndex(currentIndex: index, goForward: goForward) else { return nil }
 
         return onboardingCards[index]
     }
 
-    // Used to programatically set the pageViewController to show next card
-    private func moveToNextPage(cardType: IntroViewModel.OnboardingCards) {
+    // Used to programmatically set the pageViewController to show next card
+    func moveToNextPage(cardType: IntroViewModel.InformationCards) {
         if let nextViewController = getNextOnboardingCard(index: cardType.rawValue, goForward: true) {
             pageControl.currentPage = cardType.rawValue + 1
-            pageController.setViewControllers([nextViewController], direction: .forward, animated: true)
+            pageController.setViewControllers([nextViewController], direction: .forward, animated: false)
         }
     }
 
     // Due to restrictions with PageViewController we need to get the index of the current view controller
     // to calculate the next view controller
-    private func getCardIndex(viewController: OnboardingCardViewController) -> Int? {
+    func getCardIndex(viewController: OnboardingCardViewController) -> Int? {
         let cardType = viewController.viewModel.cardType
 
-        guard let index = viewModel.enabledCards.firstIndex(of: cardType) else {
-            return nil
-        }
+        guard let index = viewModel.enabledCards.firstIndex(of: cardType) else { return nil }
 
         return index
     }
@@ -174,27 +174,29 @@ extension IntroViewController: UIPageViewControllerDataSource, UIPageViewControl
 }
 
 extension IntroViewController: OnboardingCardDelegate {
-    func showNextPage(_ cardType: IntroViewModel.OnboardingCards) {
+    func showNextPage(_ cardType: IntroViewModel.InformationCards) {
         guard cardType != viewModel.enabledCards.last else {
-            self.didFinishClosure?(self, nil)
+            self.didFinishFlow?()
             return
         }
 
         moveToNextPage(cardType: cardType)
     }
 
-    func primaryAction(_ cardType: IntroViewModel.OnboardingCards) {
+    func primaryAction(_ cardType: IntroViewModel.InformationCards) {
         switch cardType {
         case .welcome, .wallpapers:
             moveToNextPage(cardType: cardType)
         case .signSync:
             presentSignToSync()
+        default:
+            break
         }
     }
 
     // Extra step to make sure pageControl.currentPage is the right index card
     // because UIPageViewControllerDataSource call fails
-    func pageChanged(_ cardType: IntroViewModel.OnboardingCards) {
+    func pageChanged(_ cardType: IntroViewModel.InformationCards) {
         if let cardIndex = viewModel.enabledCards.firstIndex(of: cardType),
            cardIndex != pageControl.currentPage {
             pageControl.currentPage = cardIndex
@@ -213,13 +215,19 @@ extension IntroViewController: OnboardingCardDelegate {
                                          style: .plain,
                                          target: self,
                                          action: #selector(dismissSignInViewController))
+        let theme = BuiltinThemeName(rawValue: LegacyThemeManager.instance.current.name) ?? .normal
+        buttonItem.tintColor = theme == .dark ? UIColor.theme.homePanel.activityStreamHeaderButton : UIColor.Photon.Blue50
         singInSyncVC.navigationItem.rightBarButtonItem = buttonItem
         controller = DismissableNavigationViewController(rootViewController: singInSyncVC)
+        controller.onViewDismissed = {
+            self.closeOnboarding()
+        }
         self.present(controller, animated: true)
     }
 
     @objc func dismissSignInViewController() {
-        self.dismiss(animated: true, completion: nil)
+        dismiss(animated: true, completion: nil)
+        closeOnboarding()
     }
 }
 
@@ -237,5 +245,29 @@ extension IntroViewController {
         // This actually does the right thing on iPad where the modally
         // presented version happily rotates with the iPad orientation.
         return .portrait
+    }
+}
+
+// MARK: - NotificationThemeable and Notifiable
+extension IntroViewController: NotificationThemeable, Notifiable {
+    func handleNotifications(_ notification: Notification) {
+        switch notification.name {
+        case .DisplayThemeChanged:
+            applyTheme()
+        default:
+            break
+        }
+    }
+
+    func applyTheme() {
+        let theme = BuiltinThemeName(rawValue: LegacyThemeManager.instance.current.name) ?? .normal
+
+        let indicatorColor = theme == .dark ? UIColor.theme.homePanel.activityStreamHeaderButton : UIColor.Photon.Blue50
+        pageControl.currentPageIndicatorTintColor = indicatorColor
+        view.backgroundColor = LegacyThemeManager.instance.current.onboarding.backgroundColor
+
+        onboardingCards.forEach { cardViewController in
+            cardViewController.applyTheme()
+        }
     }
 }

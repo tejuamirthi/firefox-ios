@@ -10,88 +10,76 @@ class PocketViewModel {
 
     struct UX {
         static let numberOfItemsInColumn = 3
-        static let discoverMoreMaxFontSize: CGFloat = 55 // Title 3 xxxLarge
-        static let numberOfItemsInSection = 11
-        static let fractionalWidthiPhonePortrait: CGFloat = 0.93
+        static let fractionalWidthiPhonePortrait: CGFloat = 0.90
         static let fractionalWidthiPhoneLanscape: CGFloat = 0.46
-        static let numberOfSponsoredItemsInSection = 2
-        static let indexOfFirstSponsoredItem = 1
-        static let indexOfSecondSponsoredItem = 9
     }
 
     // MARK: - Properties
 
-    private let pocketAPI = Pocket()
-
-    private let isZeroSearch: Bool
+    var isZeroSearch: Bool
+    var theme: Theme
     private var hasSentPocketSectionEvent = false
 
     var onTapTileAction: ((URL) -> Void)?
     var onLongPressTileAction: ((Site, UIView?) -> Void)?
-    var onScroll: (() -> Void)?
+    var onScroll: (([NSCollectionLayoutVisibleItem]) -> Void)?
+    weak var delegate: HomepageDataModelDelegate?
 
-    private(set) var pocketStoriesViewModels: [PocketStandardCellViewModel] = []
+    private var dataAdaptor: PocketDataAdaptor
+    private var pocketStoriesViewModels = [PocketStandardCellViewModel]()
+    private var wallpaperManager: WallpaperManager
 
-    init(pocketStoriesViewModel: [PocketStandardCellViewModel] = [], isZeroSearch: Bool) {
+    init(pocketDataAdaptor: PocketDataAdaptor,
+         isZeroSearch: Bool = false,
+         theme: Theme,
+         wallpaperManager: WallpaperManager) {
+        self.dataAdaptor = pocketDataAdaptor
         self.isZeroSearch = isZeroSearch
-        self.pocketStoriesViewModels = pocketStoriesViewModel
-        for pocketStoryViewModel in pocketStoriesViewModel {
-            bind(pocketStoryViewModel: pocketStoryViewModel)
-        }
-    }
-
-    private func bind(pocketStoryViewModel: PocketStandardCellViewModel) {
-        pocketStoryViewModel.onTap = { [weak self] indexPath in
-            self?.recordTapOnStory(index: indexPath.row)
-            let siteUrl = self?.pocketStoriesViewModels[indexPath.row].url
-            siteUrl.map { self?.onTapTileAction?($0) }
-        }
-
-        pocketStoriesViewModels.append(pocketStoryViewModel)
+        self.theme = theme
+        self.wallpaperManager = wallpaperManager
     }
 
     // The dimension of a cell
     // Fractions for iPhone to only show a slight portion of the next column
-    static var widthDimension: NSCollectionLayoutDimension {
-        if UIDevice.current.userInterfaceIdiom == .pad {
+    func getWidthDimension(device: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom,
+                           isLandscape: Bool = UIWindow.isLandscape) -> NSCollectionLayoutDimension {
+        if device == .pad {
             return .absolute(PocketStandardCell.UX.cellWidth) // iPad
-        } else if UIWindow.isLandscape {
+        } else if isLandscape {
             return .fractionalWidth(UX.fractionalWidthiPhoneLanscape)
         } else {
             return .fractionalWidth(UX.fractionalWidthiPhonePortrait)
         }
     }
 
-    var numberOfCells: Int {
-        return pocketStoriesViewModels.count != 0 ? pocketStoriesViewModels.count + 1 : 0
-    }
-
-    static var numberOfItemsInColumn: CGFloat {
-        return 3
-    }
-
-    func isStoryCell(index: Int) -> Bool {
+    private func isStoryCell(index: Int) -> Bool {
         return index < pocketStoriesViewModels.count
     }
 
-    func getSitesDetail(for index: Int) -> Site {
+    private func getSitesDetail(for index: Int) -> Site {
         if isStoryCell(index: index) {
-            return Site(url: pocketStoriesViewModels[index].url?.absoluteString ?? "", title: pocketStoriesViewModels[index].title)
+            return Site(url: pocketStoriesViewModels[index].url?.absoluteString ?? "",
+                        title: pocketStoriesViewModels[index].title)
         } else {
-            return Site(url: Pocket.MoreStoriesURL.absoluteString, title: .FirefoxHomepage.Pocket.DiscoverMore)
+            return Site(url: PocketProvider.MoreStoriesURL.absoluteString,
+                        title: .FirefoxHomepage.Pocket.DiscoverMore)
         }
     }
 
     // MARK: - Telemetry
 
-    func recordSectionHasShown() {
+    private func recordSectionHasShown() {
         if !hasSentPocketSectionEvent {
-            TelemetryWrapper.recordEvent(category: .action, method: .view, object: .pocketSectionImpression, value: nil, extras: nil)
+            TelemetryWrapper.recordEvent(category: .action,
+                                         method: .view,
+                                         object: .pocketSectionImpression,
+                                         value: nil,
+                                         extras: nil)
             hasSentPocketSectionEvent = true
         }
     }
 
-    func recordTapOnStory(index: Int) {
+    private func recordTapOnStory(index: Int) {
         // Pocket site extra
         let key = TelemetryWrapper.EventExtraKey.pocketTilePosition.rawValue
         let siteExtra = [key: "\(index)"]
@@ -105,47 +93,27 @@ class PocketViewModel {
 
     // MARK: - Private
 
-    func updatePocketStoryViewModels(with stories: [PocketStory]) {
+    private func updateData() {
+        let stories = dataAdaptor.getPocketData()
         pocketStoriesViewModels = []
+        // Add the story in the view models list
         for story in stories {
             bind(pocketStoryViewModel: .init(story: story))
         }
     }
 
-    private func getPocketSites(completion: @escaping () -> Void) {
-        pocketAPI
-            .globalFeed(items: UX.numberOfItemsInSection)
-            .uponQueue(.main) { [weak self] (pocketStory: [PocketFeedStory]) -> Void in
-                var globalTemp = pocketStory.map(PocketStory.init)
+    private func bind(pocketStoryViewModel: PocketStandardCellViewModel) {
+        pocketStoryViewModel.onTap = { [weak self] indexPath in
+            self?.recordTapOnStory(index: indexPath.row)
+            let siteUrl = self?.pocketStoriesViewModels[indexPath.row].url
+            siteUrl.map { self?.onTapTileAction?($0) }
+        }
 
-                // Check if sponsored stories are enabled, otherwise drop api call
-                guard self?.featureFlags.isFeatureEnabled(.sponsoredPocket, checking: .buildAndUser)  == true else {
-                    self?.updatePocketStoryViewModels(with: globalTemp)
-                    completion()
-                    return
-                }
-
-                self?.pocketAPI.sponsoredFeed().uponQueue(.main) { sponsored in
-                    // Convert sponsored feed to PocketStory, take the desired number of sponsored stories
-                    var sponsoredTemp = sponsored.map(PocketStory.init).prefix(UX.numberOfSponsoredItemsInSection)
-
-                    // Making sure we insert a sponsored story at a valid index
-                    let firstIndex = min(UX.indexOfFirstSponsoredItem, globalTemp.endIndex)
-                    sponsoredTemp.first.map { globalTemp.insert($0, at: firstIndex) }
-                    sponsoredTemp.removeFirst()
-
-                    let secondIndex = min(UX.indexOfSecondSponsoredItem, globalTemp.endIndex)
-                    sponsoredTemp.first.map { globalTemp.insert($0, at: secondIndex) }
-                    sponsoredTemp.removeFirst()
-
-                    self?.updatePocketStoryViewModels(with: globalTemp)
-                    completion()
-                }
-            }
+        pocketStoriesViewModels.append(pocketStoryViewModel)
     }
 
-    func showDiscoverMore() {
-        onTapTileAction?(Pocket.MoreStoriesURL)
+    private func showDiscoverMore() {
+        onTapTileAction?(PocketProvider.MoreStoriesURL)
     }
 }
 
@@ -157,9 +125,16 @@ extension PocketViewModel: HomepageViewModelProtocol, FeatureFlaggable {
     }
 
     var headerViewModel: LabelButtonHeaderViewModel {
-        return LabelButtonHeaderViewModel(title: HomepageSectionType.pocket.title,
-                                          titleA11yIdentifier: AccessibilityIdentifiers.FirefoxHomepage.SectionTitles.pocket,
-                                          isButtonHidden: true)
+        var textColor: UIColor?
+        if wallpaperManager.featureAvailable {
+            textColor = wallpaperManager.currentWallpaper.textColor
+        }
+
+        return LabelButtonHeaderViewModel(
+            title: HomepageSectionType.pocket.title,
+            titleA11yIdentifier: AccessibilityIdentifiers.FirefoxHomepage.SectionTitles.pocket,
+            isButtonHidden: true,
+            textColor: textColor)
     }
 
     func section(for traitCollection: UITraitCollection) -> NSCollectionLayoutSection {
@@ -170,15 +145,18 @@ extension PocketViewModel: HomepageViewModelProtocol, FeatureFlaggable {
         let item = NSCollectionLayoutItem(layoutSize: itemSize)
 
         let groupSize = NSCollectionLayoutSize(
-            widthDimension: PocketViewModel.widthDimension,
+            widthDimension: getWidthDimension(),
             heightDimension: .estimated(PocketStandardCell.UX.cellHeight)
         )
 
         let subItems = Array(repeating: item, count: UX.numberOfItemsInColumn)
         let group = NSCollectionLayoutGroup.vertical(layoutSize: groupSize, subitems: subItems)
         group.interItemSpacing = PocketStandardCell.UX.interItemSpacing
-        group.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0,
-                                                      bottom: 0, trailing: PocketStandardCell.UX.interGroupSpacing)
+        group.contentInsets = NSDirectionalEdgeInsets(
+            top: 0,
+            leading: 0,
+            bottom: 0,
+            trailing: PocketStandardCell.UX.interGroupSpacing)
 
         let section = NSCollectionLayoutSection(group: group)
         let headerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1),
@@ -188,35 +166,44 @@ extension PocketViewModel: HomepageViewModelProtocol, FeatureFlaggable {
                                                                  alignment: .top)
         section.boundarySupplementaryItems = [header]
         section.visibleItemsInvalidationHandler = { (visibleItems, point, env) -> Void in
-            self.onScroll?()
+            self.onScroll?(visibleItems)
         }
 
         let leadingInset = HomepageViewModel.UX.leadingInset(traitCollection: traitCollection)
-        section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: leadingInset,
-                                                        bottom: HomepageViewModel.UX.spacingBetweenSections, trailing: 0)
+        section.contentInsets = NSDirectionalEdgeInsets(top: 0,
+                                                        leading: leadingInset,
+                                                        bottom: HomepageViewModel.UX.spacingBetweenSections,
+                                                        trailing: 0)
         section.orthogonalScrollingBehavior = .continuous
         return section
     }
 
-    func numberOfItemsInSection(for traitCollection: UITraitCollection) -> Int {
-        return numberOfCells
+    func numberOfItemsInSection() -> Int {
+        // Including discover more cell
+        return !pocketStoriesViewModels.isEmpty ? pocketStoriesViewModels.count + 1 : 0
     }
 
     var isEnabled: Bool {
         // For Pocket, the user preference check returns a user preference if it exists in
         // UserDefaults, and, if it does not, it will return a default preference based on
         // a (nimbus pocket section enabled && Pocket.isLocaleSupported) check
-        guard featureFlags.isFeatureEnabled(.pocket, checking: .buildAndUser) else { return false }
-
-        return true
+        return featureFlags.isFeatureEnabled(.pocket, checking: .buildAndUser)
     }
 
     var hasData: Bool {
         return !pocketStoriesViewModels.isEmpty
     }
 
-    func updateData(completion: @escaping () -> Void) {
-        getPocketSites(completion: completion)
+    func refreshData(for traitCollection: UITraitCollection,
+                     isPortrait: Bool = UIWindow.isPortrait,
+                     device: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom) {}
+
+    func screenWasShown() {
+        hasSentPocketSectionEvent = false
+    }
+
+    func setTheme(theme: Theme) {
+        self.theme = theme
     }
 }
 
@@ -229,13 +216,16 @@ extension PocketViewModel: HomepageSectionHandler {
         recordSectionHasShown()
 
         if isStoryCell(index: indexPath.row) {
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PocketStandardCell.cellIdentifier, for: indexPath) as! PocketStandardCell
-            cell.configure(viewModel: pocketStoriesViewModels[indexPath.row])
-            cell.tag = indexPath.item
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PocketStandardCell.cellIdentifier,
+                                                          for: indexPath) as! PocketStandardCell
+            let viewModel = pocketStoriesViewModels[indexPath.row]
+            viewModel.tag = indexPath.row
+            cell.configure(viewModel: viewModel, theme: theme)
             return cell
         } else {
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PocketDiscoverCell.cellIdentifier, for: indexPath) as! PocketDiscoverCell
-            cell.itemTitle.text = .FirefoxHomepage.Pocket.DiscoverMore
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PocketDiscoverCell.cellIdentifier,
+                                                          for: indexPath) as! PocketDiscoverCell
+            cell.configure(text: .FirefoxHomepage.Pocket.DiscoverMore, theme: theme)
             return cell
         }
     }
@@ -264,5 +254,15 @@ extension PocketViewModel: HomepageSectionHandler {
         let site = getSitesDetail(for: indexPath.row)
         let sourceView = collectionView.cellForItem(at: indexPath)
         onLongPressTileAction(site, sourceView)
+    }
+}
+
+extension PocketViewModel: PocketDelegate {
+    func didLoadNewData() {
+        ensureMainThread {
+            self.updateData()
+            guard self.isEnabled else { return }
+            self.delegate?.reloadView()
+        }
     }
 }

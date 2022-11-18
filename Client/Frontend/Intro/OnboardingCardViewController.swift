@@ -5,9 +5,9 @@
 import UIKit
 
 protocol OnboardingCardDelegate: AnyObject {
-    func showNextPage(_ cardType: IntroViewModel.OnboardingCards)
-    func primaryAction(_ cardType: IntroViewModel.OnboardingCards)
-    func pageChanged(_ cardType: IntroViewModel.OnboardingCards)
+    func showNextPage(_ cardType: IntroViewModel.InformationCards)
+    func primaryAction(_ cardType: IntroViewModel.InformationCards)
+    func pageChanged(_ cardType: IntroViewModel.InformationCards)
 }
 
 class OnboardingCardViewController: UIViewController {
@@ -19,26 +19,36 @@ class OnboardingCardViewController: UIViewController {
         static let buttonCornerRadius: CGFloat = 13
         static let stackViewPadding: CGFloat = 20
         static let scrollViewVerticalPadding: CGFloat = 62
+        static let buttonVerticalInset: CGFloat = 12
+        static let buttonHorizontalInset: CGFloat = 16
+        static let buttonFontSize: CGFloat = 16
+        static let titleFontSize: CGFloat = 34
+        static let descriptionBoldFontSize: CGFloat = 20
+        static let descriptionFontSize: CGFloat = 17
+        static let imageViewSize = CGSize(width: 240, height: 300)
 
         // small device
         static let smallStackViewSpacing: CGFloat = 8
         static let smallStackViewSpacingButtons: CGFloat = 16
         static let smallScrollViewVerticalPadding: CGFloat = 20
+        static let smallImageViewSize = CGSize(width: 240, height: 300)
     }
 
     var viewModel: OnboardingCardProtocol
     weak var delegate: OnboardingCardDelegate?
 
+    // Adjusting layout for devices with height lower than 667
+    // including now iPhone SE 2nd generation and iPad
     var shouldUseSmallDeviceLayout: Bool {
-        return view.frame.height < 600
+        return view.frame.height <= 667 || UIDevice.current.userInterfaceIdiom == .pad
     }
 
     private lazy var scrollView: UIScrollView = .build { view in
         view.backgroundColor = .clear
     }
 
-    lazy var containerView: UIView = .build { stack in
-        stack.backgroundColor = .clear
+    lazy var containerView: UIView = .build { view in
+        view.backgroundColor = .clear
     }
 
     lazy var contentContainerView: UIView = .build { stack in
@@ -47,46 +57,44 @@ class OnboardingCardViewController: UIViewController {
 
     lazy var contentStackView: UIStackView = .build { stack in
         stack.backgroundColor = .clear
+        stack.alignment = .center
         stack.distribution = .fill
         stack.spacing = UX.stackViewSpacing
         stack.axis = .vertical
     }
 
-    private lazy var imageView: UIImageView = .build { imageView in
+    lazy var imageView: UIImageView = .build { imageView in
         imageView.contentMode = .scaleAspectFit
-        imageView.accessibilityIdentifier = "\(self.viewModel.a11yIdRoot)ImageView"
+        imageView.accessibilityIdentifier = "\(self.viewModel.infoModel.a11yIdRoot)ImageView"
     }
 
     private lazy var titleLabel: UILabel = .build { label in
         label.numberOfLines = 0
         label.textAlignment = .center
-        label.font = DynamicFontHelper.defaultHelper.preferredBoldFont(
-            withTextStyle: .title1,
-            maxSize: 58)
+        label.font = DynamicFontHelper.defaultHelper.preferredBoldFont(withTextStyle: .largeTitle,
+                                                                       size: UX.titleFontSize)
         label.adjustsFontForContentSizeCategory = true
-        label.accessibilityIdentifier = "\(self.viewModel.a11yIdRoot)TitleLabel"
+        label.accessibilityIdentifier = "\(self.viewModel.infoModel.a11yIdRoot)TitleLabel"
     }
 
     // Only available for Welcome card and default cases
     private lazy var descriptionBoldLabel: UILabel = .build { label in
         label.numberOfLines = 0
         label.textAlignment = .center
-        label.font = DynamicFontHelper.defaultHelper.preferredBoldFont(
-            withTextStyle: .title3,
-            maxSize: 53)
+        label.font = DynamicFontHelper.defaultHelper.preferredBoldFont(withTextStyle: .title3,
+                                                                       size: UX.descriptionBoldFontSize)
         label.isHidden = true
         label.adjustsFontForContentSizeCategory = true
-        label.accessibilityIdentifier = "\(self.viewModel.a11yIdRoot)DescriptionBoldLabel"
+        label.accessibilityIdentifier = "\(self.viewModel.infoModel.a11yIdRoot)DescriptionBoldLabel"
     }
 
     private lazy var descriptionLabel: UILabel = .build { label in
         label.numberOfLines = 0
         label.textAlignment = .center
-        label.font = DynamicFontHelper.defaultHelper.preferredFont(
-            withTextStyle: .body,
-            maxSize: 53)
+        label.font = DynamicFontHelper.defaultHelper.preferredFont(withTextStyle: .body,
+                                                                   size: UX.descriptionFontSize)
         label.adjustsFontForContentSizeCategory = true
-        label.accessibilityIdentifier = "\(self.viewModel.a11yIdRoot)DescriptionLabel"
+        label.accessibilityIdentifier = "\(self.viewModel.infoModel.a11yIdRoot)DescriptionLabel"
     }
 
     lazy var buttonStackView: UIStackView = .build { stack in
@@ -99,25 +107,35 @@ class OnboardingCardViewController: UIViewController {
     private lazy var primaryButton: ResizableButton = .build { button in
         button.titleLabel?.font = DynamicFontHelper.defaultHelper.preferredBoldFont(
             withTextStyle: .callout,
-            maxSize: 51)
+            size: UX.buttonFontSize)
         button.layer.cornerRadius = UX.buttonCornerRadius
         button.backgroundColor = UIColor.Photon.Blue50
         button.setTitleColor(UIColor.Photon.LightGrey05, for: .normal)
         button.titleLabel?.textAlignment = .center
         button.addTarget(self, action: #selector(self.primaryAction), for: .touchUpInside)
-        button.accessibilityIdentifier = "\(self.viewModel.a11yIdRoot)PrimaryButton"
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.accessibilityIdentifier = "\(self.viewModel.infoModel.a11yIdRoot)PrimaryButton"
+        button.contentEdgeInsets = UIEdgeInsets(top: UX.buttonVerticalInset,
+                                                left: UX.buttonHorizontalInset,
+                                                bottom: UX.buttonVerticalInset,
+                                                right: UX.buttonHorizontalInset)
     }
 
     private lazy var secondaryButton: ResizableButton = .build { button in
         button.titleLabel?.font = DynamicFontHelper.defaultHelper.preferredBoldFont(
             withTextStyle: .callout,
-            maxSize: 51)
+            size: UX.buttonFontSize)
         button.layer.cornerRadius = UX.buttonCornerRadius
         button.backgroundColor = UIColor.Photon.LightGrey30
         button.setTitleColor(UIColor.Photon.DarkGrey90, for: .normal)
         button.titleLabel?.textAlignment = .center
         button.addTarget(self, action: #selector(self.secondaryAction), for: .touchUpInside)
-        button.accessibilityIdentifier = "\(self.viewModel.a11yIdRoot)SecondaryButton"
+        button.accessibilityIdentifier = "\(self.viewModel.infoModel.a11yIdRoot)SecondaryButton"
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.contentEdgeInsets = UIEdgeInsets(top: UX.buttonVerticalInset,
+                                                left: UX.buttonHorizontalInset,
+                                                bottom: UX.buttonVerticalInset,
+                                                right: UX.buttonHorizontalInset)
     }
 
     init(viewModel: OnboardingCardProtocol, delegate: OnboardingCardDelegate?) {
@@ -131,21 +149,12 @@ class OnboardingCardViewController: UIViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        if self.traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection), LegacyThemeManager.instance.systemThemeIsOn {
-            let userInterfaceStyle = traitCollection.userInterfaceStyle
-            LegacyThemeManager.instance.current = userInterfaceStyle == .dark ? DarkTheme() : NormalTheme()
-            applyTheme()
-        }
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
 
         setupView()
         updateLayout()
+        applyTheme()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -156,6 +165,8 @@ class OnboardingCardViewController: UIViewController {
     }
 
     func setupView() {
+        view.backgroundColor = .clear
+
         contentStackView.addArrangedSubview(imageView)
         contentStackView.addArrangedSubview(titleLabel)
         contentStackView.addArrangedSubview(descriptionBoldLabel)
@@ -173,6 +184,8 @@ class OnboardingCardViewController: UIViewController {
         // Adapt layout for smaller screens
         let scrollViewVerticalPadding = shouldUseSmallDeviceLayout ? UX.smallScrollViewVerticalPadding :  UX.scrollViewVerticalPadding
         let stackViewSpacingButtons = shouldUseSmallDeviceLayout ? UX.smallStackViewSpacingButtons :  UX.stackViewSpacingButtons
+        let imageViewHeight = shouldUseSmallDeviceLayout ?
+            UX.imageViewSize.height : UX.smallImageViewSize.height
 
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -205,11 +218,10 @@ class OnboardingCardViewController: UIViewController {
             contentStackView.centerYAnchor.constraint(equalTo: contentContainerView.centerYAnchor),
 
             buttonStackView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: UX.stackViewPadding),
-            buttonStackView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20),
+            buttonStackView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -UX.stackViewPadding),
             buttonStackView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -UX.stackViewPadding),
 
-            primaryButton.heightAnchor.constraint(greaterThanOrEqualToConstant: UX.buttonHeight),
-            secondaryButton.heightAnchor.constraint(greaterThanOrEqualToConstant: UX.buttonHeight)
+            imageView.heightAnchor.constraint(equalToConstant: imageViewHeight)
         ])
 
         contentStackView.spacing = shouldUseSmallDeviceLayout ? UX.smallStackViewSpacing : UX.stackViewSpacing
@@ -217,25 +229,45 @@ class OnboardingCardViewController: UIViewController {
     }
 
     private func updateLayout() {
-        titleLabel.text = viewModel.title
-        descriptionBoldLabel.isHidden = viewModel.cardType != .welcome
+        titleLabel.text = viewModel.infoModel.title
+        descriptionBoldLabel.isHidden = !viewModel.shouldShowDescriptionBold
         descriptionBoldLabel.text = .Onboarding.IntroDescriptionPart1
-        descriptionLabel.isHidden = viewModel.description?.isEmpty ?? true
-        descriptionLabel.text = viewModel.description
-        secondaryButton.isHidden = viewModel.secondaryAction?.isEmpty ?? true
+        descriptionLabel.isHidden = viewModel.infoModel.description?.isEmpty ?? true
+        descriptionLabel.text = viewModel.infoModel.description
 
-        imageView.image = viewModel.image
-        imageView.isHidden = viewModel.image == nil
-        primaryButton.setTitle(viewModel.primaryAction, for: .normal)
-        secondaryButton.setTitle(viewModel.secondaryAction, for: .normal)
+        imageView.image = viewModel.infoModel.image
+        primaryButton.setTitle(viewModel.infoModel.primaryAction, for: .normal)
+        handleSecondaryButton()
     }
 
-    private func applyTheme() {
-        view.backgroundColor = UIColor.theme.homePanel.panelBackground
-        titleLabel.textColor = UIColor.theme.homeTabBanner.textColor
-        descriptionLabel.textColor = UIColor.theme.homeTabBanner.textColor
-        descriptionBoldLabel.textColor = UIColor.theme.homeTabBanner.textColor
+    private func handleSecondaryButton() {
+        // To keep Title, Description aligned between cards we don't hide the button
+        // we clear the background and make disabled
+        guard let buttonTitle = viewModel.infoModel.secondaryAction else {
+            secondaryButton.isUserInteractionEnabled = false
+            secondaryButton.backgroundColor = .clear
+            return
+        }
 
+        secondaryButton.setTitle(buttonTitle, for: .normal)
+    }
+
+    func applyTheme() {
+        let theme = BuiltinThemeName(rawValue: LegacyThemeManager.instance.current.name) ?? .normal
+
+        if theme == .dark {
+            titleLabel.textColor = .white
+            descriptionLabel.textColor  = .white
+            descriptionBoldLabel.textColor = .white
+            primaryButton.setTitleColor(.black, for: .normal)
+            primaryButton.backgroundColor = UIColor.theme.homePanel.activityStreamHeaderButton
+        } else {
+            titleLabel.textColor = .black
+            descriptionLabel.textColor = .black
+            descriptionBoldLabel.textColor = .black
+            primaryButton.setTitleColor(UIColor.Photon.LightGrey05, for: .normal)
+            primaryButton.backgroundColor = UIColor.Photon.Blue50
+        }
     }
 
     @objc func primaryAction() {

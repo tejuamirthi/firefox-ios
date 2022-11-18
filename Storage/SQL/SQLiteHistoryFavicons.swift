@@ -7,7 +7,6 @@ import UIKit
 import Fuzi
 import SwiftyJSON
 import Shared
-import XCGLogger
 
 private let log = Logger.syncLogger
 
@@ -17,7 +16,7 @@ private var urlSession: URLSession = makeURLSession(userAgent: UserAgent.desktop
 
 // If all else fails, this is the default "default" icon.
 private var defaultFavicon: UIImage = {
-    return UIImage(named: "defaultFavicon")!
+    return UIImage(named: ImageIdentifiers.defaultFavicon)!
 }()
 
 // An in-memory cache of "default" favicons keyed by the
@@ -28,8 +27,8 @@ private var defaultFaviconImageCache = [String: UIImage]()
 // region-specific TLDs. This helps us resolve them.
 private let multiRegionTopSitesDomains = ["craigslist", "google", "amazon"]
 
-private let topSitesIcons: [String : (color: UIColor, fileURL: URL)] = {
-    var icons: [String : (color: UIColor, fileURL: URL)] = [:]
+private let topSitesIcons: [String: (color: UIColor, fileURL: URL)] = {
+    var icons: [String: (color: UIColor, fileURL: URL)] = [:]
 
     let filePath = Bundle.main.path(forResource: "top_sites", ofType: "json")
     let file = try! Data(contentsOf: URL(fileURLWithPath: filePath!))
@@ -88,7 +87,7 @@ extension SQLiteHistory: Favicons {
             """
 
         let args: Args = [url, url]
-        return db.runQueryConcurrently(sql, args: args, factory: SQLiteHistory.iconColumnFactory)
+        return database.runQueryConcurrently(sql, args: args, factory: SQLiteHistory.iconColumnFactory)
     }
 
     public func addFavicon(_ icon: Favicon) -> Deferred<Maybe<Int>> {
@@ -101,7 +100,7 @@ extension SQLiteHistory: Favicons {
      */
     public func addFavicon(_ icon: Favicon, forSite site: Site) -> Deferred<Maybe<Int>> {
         func doChange(_ query: String, args: Args?) -> Deferred<Maybe<Int>> {
-            return db.withConnection { conn -> Int in
+            return database.withConnection { conn -> Int in
                 // Blind! We don't see failure here.
                 let id = self.favicons.insertOrUpdateFaviconInTransaction(icon, conn: conn)
 
@@ -251,19 +250,7 @@ extension SQLiteHistory: Favicons {
     // Retrieves a site's previously-known favicon URL from the database.
     fileprivate func lookupFaviconURLFromDatabase(forSite site: Site) -> Deferred<Maybe<URL>> {
         let deferred = CancellableDeferred<Maybe<URL>>()
-
-        getFaviconsForURL(site.url).upon { result in
-            guard let favicons = result.successValue,
-                let favicon = favicons[0],
-                let faviconURLString = favicon?.url,
-                let faviconURL = URL(string: faviconURLString) else {
-                deferred.fill(Maybe(failure: FaviconLookupError(siteURL: site.url)))
-                return
-            }
-
-            deferred.fill(Maybe(success: faviconURL))
-        }
-
+        deferred.fill(Maybe(failure: FaviconLookupError(siteURL: site.url)))
         return deferred
     }
 
@@ -291,7 +278,7 @@ extension SQLiteHistory: Favicons {
                     // Also, insert a row in `favicon_site_urls` so we can
                     // look up this favicon later without requiring history.
                     // This is primarily needed for bookmarks.
-                    _ = self.db.run("INSERT OR IGNORE INTO favicon_site_urls(site_url, faviconID) VALUES (?, ?)", withArgs: [site.url, faviconID])
+                    _ = self.database.run("INSERT OR IGNORE INTO favicon_site_urls(site_url, faviconID) VALUES (?, ?)", withArgs: [site.url, faviconID])
                 }
             }
 

@@ -6,97 +6,50 @@ import Foundation
 import Shared
 import Storage
 
-protocol TopSitesViewModelDelegate: AnyObject {
-    func reloadTopSites()
-}
-
-struct UITopSitesInterface {
-    var isLandscape: Bool
-    var isIphone: Bool
-    var horizontalSizeClass: UIUserInterfaceSizeClass
-}
-
 class TopSitesViewModel {
 
     struct UX {
         static let numberOfItemsPerRowForSizeClassIpad = UXSizeClasses(compact: 3, regular: 4, other: 2)
-        static let cellEstimatedSize: CGSize = CGSize(width: 100, height: 120)
+        static let cellEstimatedSize: CGSize = CGSize(width: 73, height: 83)
+        static let cardSpacing: CGFloat = 16
     }
 
-    struct SectionDimension {
-        var numberOfRows: Int
-        var numberOfTilesPerRow: Int
-    }
-
-    private let profile: Profile
-    private let isZeroSearch: Bool
-    private var sentImpressionTelemetry = [String: Bool]()
-
-    var sectionDimension: SectionDimension = TopSitesViewModel.defaultDimension
-    static var defaultDimension = SectionDimension(numberOfRows: 2, numberOfTilesPerRow: 6)
-
+    weak var delegate: HomepageDataModelDelegate?
+    var isZeroSearch: Bool
+    var theme: Theme
     var tilePressedHandler: ((Site, Bool) -> Void)?
     var tileLongPressedHandler: ((Site, UIView?) -> Void)?
-    weak var delegate: TopSitesViewModelDelegate?
 
-    lazy var tileManager: TopSitesManager = {
-        return TopSitesManager(profile: profile)
-    }()
+    private let profile: Profile
+    private var sentImpressionTelemetry = [String: Bool]()
+    private var topSites: [TopSite] = []
+    private let dimensionManager: TopSitesDimension
+    private var numberOfItems: Int = 0
 
-    init(profile: Profile, isZeroSearch: Bool) {
+    private let topSitesDataAdaptor: TopSitesDataAdaptor
+    private let topSiteHistoryManager: TopSiteHistoryManager
+    private let googleTopSiteManager: GoogleTopSiteManager
+    private var wallpaperManager: WallpaperManager
+
+    init(profile: Profile,
+         isZeroSearch: Bool = false,
+         theme: Theme,
+         wallpaperManager: WallpaperManager) {
         self.profile = profile
         self.isZeroSearch = isZeroSearch
-        tileManager.delegate = self
-    }
+        self.theme = theme
+        self.dimensionManager = TopSitesDimensionImplementation()
 
-    func getSectionDimension(for trait: UITraitCollection,
-                             isLandscape: Bool = UIWindow.isLandscape,
-                             isIphone: Bool = UIDevice.current.userInterfaceIdiom == .phone
-    ) -> SectionDimension {
-        let topSitesInterface = UITopSitesInterface(isLandscape: isLandscape,
-                                                    isIphone: isIphone,
-                                                    horizontalSizeClass: trait.horizontalSizeClass)
-
-        let numberOfTilesPerRow = getNumberOfTilesPerRow(for: topSitesInterface)
-        let numberOfRows = getNumberOfRows(numberOfTilesPerRow: numberOfTilesPerRow)
-        return SectionDimension(numberOfRows: numberOfRows, numberOfTilesPerRow: numberOfTilesPerRow)
-    }
-
-    // The width dimension of a cell
-    static func widthDimension(for numberOfHorizontalItems: Int) -> NSCollectionLayoutDimension {
-        return .fractionalWidth(CGFloat(1 / numberOfHorizontalItems))
-    }
-
-    // Adjust number of rows depending on the what the users want, and how many sites we actually have.
-    // We hide rows that are only composed of empty cells
-    /// - Parameter numberOfTilesPerRow: The number of tiles per row the user will see
-    /// - Returns: The number of rows the user will see on screen
-    private func getNumberOfRows(numberOfTilesPerRow: Int) -> Int {
-        let totalCellCount = numberOfTilesPerRow * tileManager.numberOfRows
-        let emptyCellCount = totalCellCount - tileManager.siteCount
-
-        // If there's no empty cell, no clean up is necessary
-        guard emptyCellCount > 0 else { return tileManager.numberOfRows }
-
-        let numberOfEmptyCellRows = Double(emptyCellCount / numberOfTilesPerRow)
-        return tileManager.numberOfRows - Int(numberOfEmptyCellRows.rounded(.down))
-    }
-
-    /// Get the number of tiles per row the user will see. This depends on the UI interface the user has.
-    /// - Parameter interface: Tile number is based on layout, this param contains the parameters needed to computer the tile number
-    /// - Returns: The number of tiles per row the user will see
-    private func getNumberOfTilesPerRow(for interface: UITopSitesInterface) -> Int {
-        if interface.isIphone {
-            return interface.isLandscape ? 8 : 4
-
-        } else {
-            // The number of items in a row is equal to the number of top sites in a row * 2
-            var numItems = Int(UX.numberOfItemsPerRowForSizeClassIpad[interface.horizontalSizeClass])
-            if !interface.isLandscape || (interface.horizontalSizeClass == .compact && interface.isLandscape) {
-                numItems = numItems - 1
-            }
-            return numItems * 2
-        }
+        self.topSiteHistoryManager = TopSiteHistoryManager(profile: profile)
+        self.googleTopSiteManager = GoogleTopSiteManager(prefs: profile.prefs)
+        let siteImageHelper = SiteImageHelper(profile: profile)
+        let adaptor = TopSitesDataAdaptorImplementation(profile: profile,
+                                                        topSiteHistoryManager: topSiteHistoryManager,
+                                                        googleTopSiteManager: googleTopSiteManager,
+                                                        siteImageHelper: siteImageHelper)
+        topSitesDataAdaptor = adaptor
+        self.wallpaperManager = wallpaperManager
+        adaptor.delegate = self
     }
 
     func tilePressed(site: TopSite, position: Int) {
@@ -105,6 +58,11 @@ class TopSitesViewModel {
     }
 
     // MARK: - Telemetry
+
+    func sendImpressionTelemetry(_ homeTopSite: TopSite, position: Int) {
+        guard !hasSentImpressionForTile(homeTopSite) else { return }
+        homeTopSite.impressionTracking(position: position)
+    }
 
     private func topSitePressTracking(homeTopSite: TopSite, position: Int) {
         // Top site extra
@@ -128,11 +86,6 @@ class TopSitesViewModel {
         }
     }
 
-    func topSiteImpressionTelemetry(_ homeTopSite: TopSite, position: Int) {
-        guard !hasSentImpressionForTile(homeTopSite) else { return }
-        homeTopSite.impressionTracking(position: position)
-    }
-
     private func hasSentImpressionForTile(_ homeTopSite: TopSite) -> Bool {
         guard sentImpressionTelemetry[homeTopSite.site.url] != nil else {
             sentImpressionTelemetry[homeTopSite.site.url] = true
@@ -145,34 +98,28 @@ class TopSitesViewModel {
 
     func hideURLFromTopSites(_ site: Site) {
         guard let host = site.tileURL.normalizedHost else { return }
-
-        let url = site.tileURL.absoluteString
-        // if the default top sites contains the siteurl. also wipe it from default suggested sites.
-        if !TopSitesHelper.defaultTopSites(profile).filter({ $0.url == url }).isEmpty {
-            deleteTileForSuggestedSite(url)
-        }
+        topSiteHistoryManager.removeDefaultTopSitesTile(site: site)
 
         profile.history.removeHostFromTopSites(host).uponQueue(.main) { [weak self] result in
             guard result.isSuccess, let self = self else { return }
-            self.tileManager.refreshIfNeeded(forceTopSites: true)
+            self.refreshIfNeeded(refresh: true)
         }
-    }
-
-    func removePinTopSite(_ site: Site) {
-        tileManager.removePinTopSite(site: site)
     }
 
     func pinTopSite(_ site: Site) {
         profile.history.addPinnedTopSite(site).uponQueue(.main) { result in
             guard result.isSuccess else { return }
-            self.tileManager.refreshIfNeeded(forceTopSites: true)
+            self.refreshIfNeeded(refresh: true)
         }
     }
 
-    private func deleteTileForSuggestedSite(_ siteURL: String) {
-        var deletedSuggestedSites = profile.prefs.arrayForKey(TopSitesHelper.DefaultSuggestedSitesKey) as? [String] ?? []
-        deletedSuggestedSites.append(siteURL)
-        profile.prefs.setObject(deletedSuggestedSites, forKey: TopSitesHelper.DefaultSuggestedSitesKey)
+    func removePinTopSite(_ site: Site) {
+        googleTopSiteManager.removeGoogleTopSite(site: site)
+        topSiteHistoryManager.removeTopSite(site: site)
+    }
+
+    func refreshIfNeeded(refresh forced: Bool) {
+        topSiteHistoryManager.refreshIfNeeded(forceRefresh: forced)
     }
 }
 
@@ -186,21 +133,24 @@ extension TopSitesViewModel: HomepageViewModelProtocol, FeatureFlaggable {
     var headerViewModel: LabelButtonHeaderViewModel {
         // Only show a header if the firefox browser logo isn't showing
         let shouldShow = !featureFlags.isFeatureEnabled(.wallpapers, checking: .buildOnly)
-        return LabelButtonHeaderViewModel(title: shouldShow ? HomepageSectionType.topSites.title: nil,
-                                          titleA11yIdentifier: AccessibilityIdentifiers.FirefoxHomepage.SectionTitles.topSites,
-                                          isButtonHidden: true)
+        var textColor: UIColor?
+        if wallpaperManager.featureAvailable {
+            textColor = wallpaperManager.currentWallpaper.textColor
+        }
+
+        return LabelButtonHeaderViewModel(
+            title: shouldShow ? HomepageSectionType.topSites.title: nil,
+            titleA11yIdentifier: AccessibilityIdentifiers.FirefoxHomepage.SectionTitles.topSites,
+            isButtonHidden: true,
+            textColor: textColor)
     }
 
     var isEnabled: Bool {
         return featureFlags.isFeatureEnabled(.topSites, checking: .buildAndUser)
     }
 
-    func numberOfItemsInSection(for traitCollection: UITraitCollection) -> Int {
-        refreshData(for: traitCollection)
-
-        let sectionDimension = getSectionDimension(for: traitCollection)
-        let items = sectionDimension.numberOfRows * sectionDimension.numberOfTilesPerRow
-        return items
+    func numberOfItemsInSection() -> Int {
+        return numberOfItems
     }
 
     func section(for traitCollection: UITraitCollection) -> NSCollectionLayoutSection {
@@ -215,37 +165,59 @@ extension TopSitesViewModel: HomepageViewModelProtocol, FeatureFlaggable {
             heightDimension: .estimated(UX.cellEstimatedSize.height)
         )
 
-        let sectionDimension = getSectionDimension(for: traitCollection)
-        let group = NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, subitem: item, count: sectionDimension.numberOfTilesPerRow)
+        let interface = TopSitesUIInterface(trait: traitCollection)
+        let sectionDimension = dimensionManager.getSectionDimension(for: topSites,
+                                                                    numberOfRows: topSitesDataAdaptor.numberOfRows,
+                                                                    interface: interface)
+        let group = NSCollectionLayoutGroup.horizontal(layoutSize: groupSize,
+                                                       subitem: item,
+                                                       count: sectionDimension.numberOfTilesPerRow)
+        group.interItemSpacing = NSCollectionLayoutSpacing.fixed(UX.cardSpacing)
         let section = NSCollectionLayoutSection(group: group)
 
-        let leadingInset = HomepageViewModel.UX.topSiteLeadingInset(traitCollection: traitCollection)
+        let leadingInset = HomepageViewModel.UX.leadingInset(traitCollection: traitCollection)
         section.contentInsets = NSDirectionalEdgeInsets(top: 0,
                                                         leading: leadingInset,
                                                         bottom: HomepageViewModel.UX.spacingBetweenSections - TopSiteItemCell.UX.bottomSpace,
-                                                        trailing: 0)
+                                                        trailing: leadingInset)
+        section.interGroupSpacing = UX.cardSpacing
 
         return section
     }
 
     var hasData: Bool {
-        return tileManager.hasData
+        return !topSites.isEmpty
     }
 
-    func updateData(completion: @escaping () -> Void) {
-        tileManager.loadTopSitesData(dataLoadingCompletion: completion)
+    func refreshData(for traitCollection: UITraitCollection,
+                     isPortrait: Bool = UIWindow.isPortrait,
+                     device: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom) {
+        let interface = TopSitesUIInterface(trait: traitCollection)
+        let sectionDimension = dimensionManager.getSectionDimension(for: topSites,
+                                                                    numberOfRows: topSitesDataAdaptor.numberOfRows,
+                                                                    interface: interface)
+        topSitesDataAdaptor.recalculateTopSiteData(for: sectionDimension.numberOfTilesPerRow)
+        topSites = topSitesDataAdaptor.getTopSitesData()
+        numberOfItems = sectionDimension.numberOfRows * sectionDimension.numberOfTilesPerRow
     }
 
-    func refreshData(for traitCollection: UITraitCollection) {
-        sectionDimension = getSectionDimension(for: traitCollection)
-        tileManager.calculateTopSiteData(numberOfTilesPerRow: sectionDimension.numberOfTilesPerRow)
+    func screenWasShown() {
+        sentImpressionTelemetry = [String: Bool]()
+    }
+
+    func setTheme(theme: Theme) {
+        self.theme = theme
     }
 }
 
 // MARK: - FxHomeTopSitesManagerDelegate
 extension TopSitesViewModel: TopSitesManagerDelegate {
-    func reloadTopSites() {
-        delegate?.reloadTopSites()
+    func didLoadNewData() {
+        ensureMainThread {
+            self.topSites = self.topSitesDataAdaptor.getTopSitesData()
+            guard self.isEnabled else { return }
+            self.delegate?.reloadView()
+        }
     }
 }
 
@@ -255,12 +227,24 @@ extension TopSitesViewModel: HomepageSectionHandler {
     func configure(_ collectionView: UICollectionView,
                    at indexPath: IndexPath) -> UICollectionViewCell {
         if let cell = collectionView.dequeueReusableCell(cellType: TopSiteItemCell.self, for: indexPath),
-           let contentItem = tileManager.getSite(index: indexPath.row) {
-            cell.configure(contentItem, position: indexPath.row)
-            topSiteImpressionTelemetry(contentItem, position: indexPath.row)
+           let contentItem = topSites[safe: indexPath.row] {
+            let favicon = topSitesDataAdaptor.getFaviconImage(forSite: contentItem.site)
+            var textColor: UIColor?
+
+            if wallpaperManager.featureAvailable {
+                textColor = wallpaperManager.currentWallpaper.textColor
+            }
+
+            cell.configure(contentItem,
+                           favicon: favicon,
+                           position: indexPath.row,
+                           theme: theme,
+                           textColor: textColor)
+            sendImpressionTelemetry(contentItem, position: indexPath.row)
             return cell
 
         } else if let cell = collectionView.dequeueReusableCell(cellType: EmptyTopSiteCell.self, for: indexPath) {
+            cell.applyTheme(theme: theme)
             return cell
         }
 
@@ -277,14 +261,14 @@ extension TopSitesViewModel: HomepageSectionHandler {
                        homePanelDelegate: HomePanelDelegate?,
                        libraryPanelDelegate: LibraryPanelDelegate?) {
 
-        guard let site = tileManager.getSite(index: indexPath.row) else { return }
+        guard let site = topSites[safe: indexPath.row]  else { return }
 
         tilePressed(site: site, position: indexPath.row)
     }
 
     func handleLongPress(with collectionView: UICollectionView, indexPath: IndexPath) {
         guard let tileLongPressedHandler = tileLongPressedHandler,
-              let site = tileManager.getSiteDetail(index: indexPath.row)
+              let site = topSites[safe: indexPath.row]?.site
         else { return }
 
         let sourceView = collectionView.cellForItem(at: indexPath)

@@ -5,7 +5,6 @@
 import Foundation
 import MozillaAppServices
 import Shared
-import XCGLogger
 
 private let log = Logger.browserLogger
 private let nimbusAppName = "firefox_ios"
@@ -106,8 +105,8 @@ enum Experiments {
 
     static var dbPath: String? {
         let profilePath: String?
-        if AppConstants.IsRunningTest || AppConstants.IsRunningPerfTest {
-            profilePath = (UIApplication.shared.delegate as? TestAppDelegate)?.dirForTestProfile
+        if AppConstants.isRunningUITests || AppConstants.isRunningPerfTests {
+            profilePath = (UIApplication.shared.delegate as? UITestAppDelegate)?.dirForTestProfile
         } else {
             profilePath = FileManager.default.containerURL(
                 forSecurityApplicationGroupIdentifier: AppInfo.sharedContainerIdentifier
@@ -127,7 +126,8 @@ enum Experiments {
 
     static let remoteSettingsURL: String? = {
         guard let url = Bundle.main.object(forInfoDictionaryKey: NIMBUS_URL_KEY) as? String,
-              !url.isEmptyOrWhitespace() else {
+              !url.isEmptyOrWhitespace()
+        else {
             log.error("No Nimbus URL found in Info.plist")
             return nil
         }
@@ -149,13 +149,9 @@ enum Experiments {
         // If no URL is specified, or it's not valid continue with as if
         // we're enabled. This to allow testing of the app, without standing
         // up a `RemoteSettings` server.
-        guard let urlString = Experiments.remoteSettingsURL else {
-            return nil
-        }
-
-        guard let url = URL(string: urlString) else {
-            return nil
-        }
+        guard let urlString = Experiments.remoteSettingsURL,
+              let url = URL(string: urlString)
+        else { return nil }
 
         if usePreviewCollection() {
             return NimbusServerSettings(url: url, collection: "nimbus-preview")

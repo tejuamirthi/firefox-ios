@@ -6,7 +6,12 @@ import Foundation
 
 /// Customize button is always present at the bottom of the page
 class CustomizeHomepageSectionViewModel {
+    var theme: Theme
     var onTapAction: ((UIButton) -> Void)?
+
+    init(theme: Theme) {
+        self.theme = theme
+    }
 }
 
 // MARK: HomeViewModelProtocol
@@ -31,17 +36,28 @@ extension CustomizeHomepageSectionViewModel: HomepageViewModelProtocol {
 
         let leadingInset = HomepageViewModel.UX.leadingInset(traitCollection: traitCollection)
         let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: leadingInset,
-                                                        bottom: HomepageViewModel.UX.spacingBetweenSections, trailing: 0)
+        section.contentInsets = NSDirectionalEdgeInsets(
+            top: 0,
+            leading: leadingInset,
+            bottom: HomepageViewModel.UX.spacingBetweenSections,
+            trailing: 0)
         return section
     }
 
-    func numberOfItemsInSection(for traitCollection: UITraitCollection) -> Int {
+    func numberOfItemsInSection() -> Int {
         return 1
     }
 
     var isEnabled: Bool {
         return true
+    }
+
+    func refreshData(for traitCollection: UITraitCollection,
+                     isPortrait: Bool = UIWindow.isPortrait,
+                     device: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom) {}
+
+    func setTheme(theme: Theme) {
+        self.theme = theme
     }
 }
 
@@ -50,8 +66,8 @@ extension CustomizeHomepageSectionViewModel: HomepageSectionHandler {
 
     func configure(_ cell: UICollectionViewCell,
                    at indexPath: IndexPath) -> UICollectionViewCell {
-        guard let customizeHomeCell = cell as? CustomizeHomepageSectionView else { return UICollectionViewCell() }
-        customizeHomeCell.configure(onTapAction: onTapAction)
+        guard let customizeHomeCell = cell as? CustomizeHomepageSectionCell else { return UICollectionViewCell() }
+        customizeHomeCell.configure(onTapAction: onTapAction, theme: theme)
         return customizeHomeCell
     }
 

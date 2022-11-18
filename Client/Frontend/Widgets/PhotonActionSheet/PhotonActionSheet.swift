@@ -49,9 +49,9 @@ class PhotonActionSheet: UIViewController {
 
     // MARK: - Variables
     private var tableView = UITableView(frame: .zero, style: .grouped)
-    private var viewModel: PhotonActionSheetViewModel!
+    let viewModel: PhotonActionSheetViewModel
     private var constraints = [NSLayoutConstraint]()
-    var notificationCenter: NotificationCenter = NotificationCenter.default
+    var notificationCenter: NotificationProtocol = NotificationCenter.default
 
     private lazy var closeButton: UIButton = .build { button in
         button.setTitle(.CloseButtonTitle, for: .normal)
@@ -249,8 +249,8 @@ class PhotonActionSheet: UIViewController {
     }
 
     private func applyBackgroundBlur() {
-        let appDelegate = UIApplication.shared.delegate as! AppDelegate
-        guard let screenshot = appDelegate.window?.screenshot() else { return }
+        guard let sceneDelegate = UIApplication.shared.connectedScenes.first?.delegate as? SceneDelegate,
+              let screenshot = sceneDelegate.window?.screenshot() else { return }
 
         let blurredImage = screenshot.applyBlur(withRadius: 5,
                                                 blurType: BOXFILTER,
@@ -274,7 +274,13 @@ class PhotonActionSheet: UIViewController {
                                change: [NSKeyValueChangeKey: Any]?,
                                context: UnsafeMutableRawPointer?) {
         if viewModel.presentationStyle == .popover && !wasHeightOverriden {
-            preferredContentSize = tableView.contentSize
+            if #available(iOS 15.4, *) {
+                var size = tableView.contentSize
+                size.height = tableView.contentSize.height - UX.Spacing - UX.TablePadding
+                preferredContentSize = size
+            } else {
+                preferredContentSize = tableView.contentSize
+            }
         }
     }
 

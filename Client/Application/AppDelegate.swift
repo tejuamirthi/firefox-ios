@@ -4,39 +4,47 @@
 
 import Shared
 import Storage
-import AVFoundation
-import XCGLogger
-import MessageUI
-import SyncTelemetry
-import LocalAuthentication
-import Sync
 import CoreSpotlight
-import UserNotifications
-import Account
-import BackgroundTasks
+import UIKit
 
 let LatestAppVersionProfileKey = "latestAppVersion"
 
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
-    var window: UIWindow?
-    var browserViewController: BrowserViewController!
-    var rootViewController: UIViewController!
-    var tabManager: TabManager!
-    var receivedURLs = [URL]()
+    var notificationCenter: NotificationProtocol = NotificationCenter.default
     var orientationLock = UIInterfaceOrientationMask.all
-    lazy var profile: Profile = BrowserProfile(localName: "profile",
-                                               syncDelegate: UIApplication.shared.syncDelegate)
+
     private let log = Logger.browserLogger
+
+    lazy var profile: Profile = BrowserProfile(
+        localName: "profile",
+        syncDelegate: UIApplication.shared.syncDelegate,
+        isNewHistoryPlacesAPI: UserDefaults.standard.bool(forKey: PrefsKeys.NewPlacesAPIDefaultKey)
+    )
+
+    lazy var tabManager: TabManager = TabManager(
+        profile: profile,
+        imageStore: DiskImageStore(
+            files: profile.files,
+            namespace: "TabManagerScreenshots",
+            quality: UIConstants.ScreenshotQuality)
+    )
+
+    lazy var themeManager: ThemeManager = DefaultThemeManager(appDelegate: self)
+    lazy private var ratingPromptManager: RatingPromptManager = AppContainer.shared.resolve()
     private var shutdownWebServer: DispatchSourceTimer?
     private var webServerUtil: WebServerUtil?
     private var appLaunchUtil: AppLaunchUtil?
-    func application(_ application: UIApplication,
-                     willFinishLaunchingWithOptions
-                     launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        log.info("startApplication begin")
+    private var backgroundSyncUtil: BackgroundSyncUtil?
+    private var widgetManager: TopSitesWidgetManager?
+    private var menuBuilderHelper: MenuBuilderHelper?
 
-        self.window = UIWindow(frame: UIScreen.main.bounds)
+    func application(
+        _ application: UIApplication,
+        willFinishLaunchingWithOptions
+        launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        log.info("startApplication begin")
 
         appLaunchUtil = AppLaunchUtil(profile: profile)
         appLaunchUtil?.setUpPreLaunchDependencies()
@@ -45,68 +53,39 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         webServerUtil = WebServerUtil(profile: profile)
         webServerUtil?.setUpWebServer()
 
-        let imageStore = DiskImageStore(files: profile.files, namespace: "TabManagerScreenshots", quality: UIConstants.ScreenshotQuality)
-        self.tabManager = TabManager(profile: profile, imageStore: imageStore)
-
-        setupRootViewController()
-        startListeningForThemeUpdates()
+        menuBuilderHelper = MenuBuilderHelper()
 
         log.info("startApplication end")
 
         return true
     }
 
-    func applicationWillTerminate(_ application: UIApplication) {
-        // We have only five seconds here, so let's hope this doesn't take too long.
-        profile._shutdown()
-
-        // Allow deinitializers to close our database connections.
-        tabManager = nil
-        browserViewController = nil
-        rootViewController = nil
-    }
-
-    func application(_ application: UIApplication,
-                     didFinishLaunchingWithOptions
-                     launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-
-        window!.makeKeyAndVisible()
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions
+        launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
         pushNotificationSetup()
         appLaunchUtil?.setUpPostLaunchDependencies()
-        setUpBackgroundSync(with: application)
+        backgroundSyncUtil = BackgroundSyncUtil(profile: profile, application: application)
+
+        // Widgets are available on iOS 14 and up only.
+        if #available(iOS 14.0, *) {
+            let topSitesProvider = TopSitesProviderImplementation(browserHistoryFetcher: profile.history,
+                                                                  prefs: profile.prefs)
+
+            widgetManager = TopSitesWidgetManager(topSitesProvider: topSitesProvider)
+        }
+
+        addObservers()
 
         return true
     }
 
-    private func setUpBackgroundSync(with application: UIApplication) {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "org.mozilla.ios.sync.part1", using: DispatchQueue.global()) { task in
-            guard self.profile.hasSyncableAccount() else {
-                self.shutdownProfileWhenNotActive(application)
-                return
-            }
-            let collection = ["bookmarks", "history"]
-            self.profile.syncManager.syncNamedCollections(why: .backgrounded, names: collection).uponQueue(.main) { _ in
-                task.setTaskCompleted(success: true)
-                let request = BGProcessingTaskRequest(identifier: "org.mozilla.ios.sync.part2")
-                request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
-                request.requiresNetworkConnectivity = true
-                do {
-                    try BGTaskScheduler.shared.submit(request)
-                } catch {
-                    NSLog(error.localizedDescription)
-                }
-            }
-        }
-
-        // Split up the sync tasks so each can get maximal time for a bg task.
-        // This task runs after the bookmarks+history sync.
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "org.mozilla.ios.sync.part2", using: DispatchQueue.global()) { task in
-            let collection = ["tabs", "logins", "clients"]
-            self.profile.syncManager.syncNamedCollections(why: .backgrounded, names: collection).uponQueue(.main) { _ in
-                self.shutdownProfileWhenNotActive(application)
-                task.setTaskCompleted(success: true)
-            }
-        }
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        // This is not fatal but sentry only sends fatal events
+        SentryIntegration.shared.sendWithStacktrace(message: "Memory warning received",
+                                                    severity: .fatal)
     }
 
     // We sync in the foreground only, to avoid the possibility of runaway resource usage.
@@ -115,7 +94,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         shutdownWebServer?.cancel()
         shutdownWebServer = nil
 
-        profile._reopen()
+        profile.reopen()
 
         if profile.prefs.boolForKey(PendingAccountDisconnectedKey) ?? false {
             profile.removeAccount()
@@ -124,44 +103,28 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         profile.syncManager.applicationDidBecomeActive()
         webServerUtil?.setUpWebServer()
 
-        browserViewController.firefoxHomeViewController?.reloadAll()
-
-        /// When transitioning to scenes, each scene's BVC needs to resume its file download queue.
-        browserViewController.downloadQueue.resumeAll()
-
         TelemetryWrapper.recordEvent(category: .action, method: .foreground, object: .app)
 
-        // Delay these operations until after UIKit/UIApp init is complete
-        // - loadQueuedTabs accesses the DB and shows up as a hot path in profiling
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            // We could load these here, but then we have to futz with the tab counter
-            // and making NSURLRequests.
-            self.browserViewController.loadQueuedTabs(receivedURLs: self.receivedURLs)
-            self.receivedURLs.removeAll()
-            application.applicationIconBadgeNumber = 0
-        }
         // Create fx favicon cache directory
         FaviconFetcher.createWebImageCacheDirectory()
+
         // update top sites widget
         updateTopSitesWidget()
 
         // Cleanup can be a heavy operation, take it out of the startup path. Instead check after a few seconds.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            self.profile.cleanupHistoryIfNeeded()
-            self.browserViewController.ratingPromptManager.updateData()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+            self?.profile.cleanupHistoryIfNeeded()
+            self?.ratingPromptManager.updateData()
         }
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
         updateTopSitesWidget()
+
         UserDefaults.standard.setValue(Date(), forKey: "LastActiveTimestamp")
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
-        // Pause file downloads.
-        // TODO: iOS 13 needs to iterate all the BVCs.
-        browserViewController.downloadQueue.pauseAll()
-
         TelemetryWrapper.recordEvent(category: .action, method: .background, object: .app)
         TabsQuantityTelemetry.trackTabsQuantity(tabManager: tabManager)
 
@@ -174,67 +137,43 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         singleShotTimer.resume()
         shutdownWebServer = singleShotTimer
-
-        scheduleBGSync(application: application)
-
+        backgroundSyncUtil?.scheduleSyncOnAppBackground()
         tabManager.preserveTabs()
+    }
+
+    func applicationWillTerminate(_ application: UIApplication) {
+        // We have only five seconds here, so let's hope this doesn't take too long.
+        profile.shutdown()
     }
 
     private func updateTopSitesWidget() {
         // Since we only need the topSites data in the archiver, let's write it
         // only if iOS 14 is available.
         if #available(iOS 14.0, *) {
-            TopSitesHelper.writeWidgetKitTopSites(profile: profile)
+            widgetManager?.writeWidgetKitTopSites()
         }
     }
+}
 
-    private func shutdownProfileWhenNotActive(_ application: UIApplication) {
-        // Only shutdown the profile if we are not in the foreground
-        guard application.applicationState != .active else {
-            return
-        }
+extension AppDelegate: Notifiable {
 
-        profile._shutdown()
+    private func addObservers() {
+        setupNotifications(forObserver: self, observing: [UIApplication.didBecomeActiveNotification,
+                                                          UIApplication.willResignActiveNotification,
+                                                          UIApplication.didEnterBackgroundNotification])
     }
 
-    /// When a user presses and holds the app icon from the Home Screen, we present quick actions / shortcut items (see QuickActions).
-    ///
-    /// This method can handle a quick action from both app launch and when the app becomes active. However, the system calls launch methods first if the app `launches`
-    /// and gives you a chance to handle the shortcut there. If it's not handled there, this method is called in the activation process with the shortcut item.
-    ///
-    /// Quick actions / shortcut items are handled here as long as our two launch methods return `true`. If either of them return `false`, this method
-    /// won't be called to handle shortcut items.
-    func application(_ application: UIApplication, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
-        let handledShortCutItem = QuickActions.sharedInstance.handleShortCutItem(shortcutItem, withBrowserViewController: browserViewController)
+    /// When migrated to Scenes, these methods aren't called. Consider this a tempoary solution to calling into those methods.
+    func handleNotifications(_ notification: Notification) {
+        switch notification.name {
+        case UIApplication.didBecomeActiveNotification:
+            applicationDidBecomeActive(UIApplication.shared)
+        case UIApplication.willResignActiveNotification:
+            applicationWillResignActive(UIApplication.shared)
+        case UIApplication.didEnterBackgroundNotification:
+            applicationDidEnterBackground(UIApplication.shared)
 
-        completionHandler(handledShortCutItem)
-    }
-
-    private func scheduleBGSync(application: UIApplication) {
-        if profile.syncManager.isSyncing {
-            // If syncing, create a bg task because _shutdown() is blocking and might take a few seconds to complete
-            var taskId = UIBackgroundTaskIdentifier(rawValue: 0)
-            taskId = application.beginBackgroundTask(expirationHandler: {
-                self.shutdownProfileWhenNotActive(application)
-                application.endBackgroundTask(taskId)
-            })
-
-            DispatchQueue.main.async {
-                self.shutdownProfileWhenNotActive(application)
-                application.endBackgroundTask(taskId)
-            }
-        } else {
-            // Blocking call, however without sync running it should be instantaneous
-            profile._shutdown()
-
-            let request = BGProcessingTaskRequest(identifier: "org.mozilla.ios.sync.part1")
-            request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
-            request.requiresNetworkConnectivity = true
-            do {
-                try BGTaskScheduler.shared.submit(request)
-            } catch {
-                NSLog(error.localizedDescription)
-            }
+        default: break
         }
     }
 }
@@ -242,102 +181,49 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 // This functionality will need to be moved to the SceneDelegate when the time comes
 extension AppDelegate {
 
-    func startListeningForThemeUpdates() {
-        NotificationCenter.default.addObserver(forName: .DisplayThemeChanged, object: nil, queue: .main) { (notification) -> Void in
-            if !LegacyThemeManager.instance.systemThemeIsOn {
-                self.window?.overrideUserInterfaceStyle = LegacyThemeManager.instance.userInterfaceStyle
-            } else {
-                self.window?.overrideUserInterfaceStyle = .unspecified
-            }
-        }
-    }
-
     // Orientation lock for views that use new modal presenter
-    func application(_ application: UIApplication,
-                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
         return self.orientationLock
     }
 
-    func application(_ application: UIApplication,
-                     continue userActivity: NSUserActivity,
-                     restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        if userActivity.activityType == SiriShortcuts.activityType.openURL.rawValue {
-            browserViewController.openBlankNewTab(focusLocationField: false)
-            return true
-        }
+}
 
-        // If the `NSUserActivity` has a `webpageURL`, it is either a deep link or an old history item
-        // reached via a "Spotlight" search before we began indexing visited pages via CoreSpotlight.
-        if let url = userActivity.webpageURL {
-            let query = url.getQuery()
+// MARK: - Key Commands
 
-            // Check for fxa sign-in code and launch the login screen directly
-            if query["signin"] != nil {
-                // bvc.launchFxAFromDeeplinkURL(url) // Was using Adjust. Consider hooking up again when replacement system in-place.
-                return true
-            }
+extension AppDelegate {
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
 
-            // Per Adjust documenation, https://docs.adjust.com/en/universal-links/#running-campaigns-through-universal-links,
-            // it is recommended that links contain the `deep_link` query parameter. This link will also
-            // be url encoded.
-            if let deepLink = query["deep_link"]?.removingPercentEncoding, let url = URL(string: deepLink) {
-                browserViewController.switchToTabForURLOrOpen(url)
-                return true
-            }
+        guard builder.system == .main else { return }
 
-            browserViewController.switchToTabForURLOrOpen(url)
-            return true
-        }
+        menuBuilderHelper?.mainMenu(for: builder)
+    }
+}
 
-        // Otherwise, check if the `NSUserActivity` is a CoreSpotlight item and switch to its tab or
-        // open a new one.
-        if userActivity.activityType == CSSearchableItemActionType {
-            if let userInfo = userActivity.userInfo,
-                let urlString = userInfo[CSSearchableItemActivityIdentifier] as? String,
-                let url = URL(string: urlString) {
-                browserViewController.switchToTabForURLOrOpen(url)
-                return true
-            }
-        }
+// MARK: - Scenes related methods
+extension AppDelegate {
 
-        return false
+    /// UIKit is responsible for creating & vending Scene instances. This method is especially useful when there
+    /// are multiple scene configurations to choose from.  With this method, we can select a configuration
+    /// to create a new scene with dynamically (outside of what's in the pList).
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+
+        let configuration = UISceneConfiguration(
+            name: connectingSceneSession.configuration.name,
+            sessionRole: connectingSceneSession.role
+        )
+
+        configuration.sceneClass = connectingSceneSession.configuration.sceneClass
+        configuration.delegateClass = connectingSceneSession.configuration.delegateClass
+
+        return configuration
     }
 
-    func application(_ application: UIApplication,
-                     open url: URL,
-                     options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        guard let routerpath = NavigationPath(url: url) else {
-            return false
-        }
-
-        if let _ = profile.prefs.boolForKey(PrefsKeys.AppExtensionTelemetryOpenUrl) {
-            profile.prefs.removeObjectForKey(PrefsKeys.AppExtensionTelemetryOpenUrl)
-            var object = TelemetryWrapper.EventObject.url
-            if case .text = routerpath {
-                object = .searchText
-            }
-            TelemetryWrapper.recordEvent(category: .appExtensionAction, method: .applicationOpenUrl, object: object)
-        }
-
-        DispatchQueue.main.async {
-            NavigationPath.handle(nav: routerpath, with: self.browserViewController)
-        }
-        return true
-    }
-
-    private func setupRootViewController() {
-        if !LegacyThemeManager.instance.systemThemeIsOn {
-            window?.overrideUserInterfaceStyle = LegacyThemeManager.instance.userInterfaceStyle
-        }
-
-        browserViewController = BrowserViewController(profile: profile, tabManager: tabManager)
-        browserViewController.edgesForExtendedLayout = []
-
-        let navigationController = UINavigationController(rootViewController: browserViewController)
-        navigationController.isNavigationBarHidden = true
-        navigationController.edgesForExtendedLayout = UIRectEdge(rawValue: 0)
-        rootViewController = navigationController
-
-        window!.rootViewController = rootViewController
-    }
 }

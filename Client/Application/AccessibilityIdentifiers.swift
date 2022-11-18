@@ -21,16 +21,29 @@ public struct AccessibilityIdentifiers {
         static let reloadButton = "TabLocationView.reloadButton"
     }
 
+    struct Browser {
+
+        struct TopTabs {
+            static let collectionView = "Top Tabs View"
+            static let tabsButton = "TopTabsViewController.tabsButton"
+            static let newTabButton = "TopTabsViewController.newTabButton"
+            static let privateModeButton = "TopTabsViewController.privateModeButton"
+        }
+    }
+
     struct FirefoxHomepage {
 
         static let collectionView = "FxCollectionView"
 
         struct HomeTabBanner {
+            static let titleLabel = "HomeTabBanner.titleLabel"
+            static let descriptionLabel = "HomeTabBanner.descriptionLabel"
             static let ctaButton = "HomeTabBanner.ctaButton"
         }
 
         struct OtherButtons {
-            static let logoButton = "FxHomeLogoButton"
+            static let logoImage = "FxHomeLogoImage"
+            static let logoText = "FxHomeLogoText"
             static let customizeHome = "FxHomeCustomizeHomeSettingButton"
         }
 
@@ -64,6 +77,17 @@ public struct AccessibilityIdentifiers {
         struct JumpBackIn {
             static let itemCell = "JumpBackInCell"
         }
+
+        struct SyncedTab {
+            static let itemCell = "SyncedTabCell"
+            static let cardTitle = "SyncedTabCardTitle"
+            static let showAllButton = "SyncedTabShowAllButton"
+            static let heroImage = "SyncedTabHeroImage"
+            static let itemTitle = "SyncedTabItemTitle"
+            static let favIconImage = "SyncedTabFavIconImage"
+            static let fallbackFavIconImage = "SyncedTabFallbackFavIconImage"
+            static let descriptionLabel = "SyncedTabDescriptionLabel"
+        }
     }
 
     struct GeneralizedIdentifiers {
@@ -77,6 +101,11 @@ public struct AccessibilityIdentifiers {
         static let syncedTabs = "Synced Tabs"
         static let inactiveTabHeader = "InactiveTabs.header"
         static let inactiveTabDeleteButton = "InactiveTabs.deleteButton"
+        static let closeAllTabsButton = "closeAllTabsButtonTabTray"
+        static let newTabButton = "newTabButtonTabTray"
+        static let doneButton = "doneButtonTabTray"
+        static let syncTabsButton = "syncTabsButtonTabTray"
+        static let navBarSegmentedControl = "navBarTabTray"
     }
 
     struct LibraryPanels {
@@ -92,6 +121,10 @@ public struct AccessibilityIdentifiers {
         static let bottomSearchButton = "historyBottomSearchButton"
         static let bottomDeleteButton = "historyBottomDeleteButton"
 
+        struct BookmarksPanel {
+            static let tableView = "Bookmarks List"
+        }
+
         struct HistoryPanel {
             static let tableView = "History List"
             static let clearHistoryCell = "HistoryPanel.clearHistory"
@@ -105,11 +138,27 @@ public struct AccessibilityIdentifiers {
     }
 
     struct Onboarding {
+        static let backgroundImage = "Onboarding.BackgroundImage"
         static let welcomeCard = "WelcomeCard"
         static let wallpapersCard = "WallpapersCard"
         static let signSyncCard = "SignSyncCard"
         static let closeButton = "CloseButton"
         static let pageControl = "PageControl"
+
+        struct Wallpaper {
+            static let card = "wallpaperCard"
+            static let title = "wallpaperOnboardingTitle"
+            static let description = "wallpaperOnboardingDescription"
+            static let settingsButton = "wallpaperOnboardingSettingsButton"
+        }
+    }
+
+    struct Upgrade {
+        static let backgroundImage = "Upgrade.BackgroundImage"
+        static let welcomeCard = "Upgrade.WelcomeCard"
+        static let signSyncCard = "Upgrade.SignSyncCard"
+        static let closeButton = "Upgrade.CloseButton"
+        static let pageControl = "Upgrade.PageControl"
     }
 
     struct Settings {
@@ -131,6 +180,13 @@ public struct AccessibilityIdentifiers {
                     static let topSitesRows = "TopSitesRows"
                 }
 
+                struct Wallpaper {
+                    static let collectionTitle = "wallpaperCollectionTitle"
+                    static let collectionDescription = "wallpaperCollectionDescription"
+                    static let collectionButton = "wallpaperCollectionButton"
+                    static let card = "wallpaperCard"
+                }
+
                 static let jumpBackIn = "Jump Back In"
                 static let recentlySaved = "Recently Saved"
                 static let recentVisited = "Recently Visited"
@@ -140,7 +196,14 @@ public struct AccessibilityIdentifiers {
         }
 
         struct FirefoxAccount {
+            static let continueButton = "Sign up or sign in"
+            static let emailTextFieldChinaFxA = "Email"
+            static let emailTextField = "Enter your email"
+            static let fxaNavigationBar = "Sync and Save Data"
+            static let fxaSettingsButton = "Sync and Save Data"
+            static let fxaSignInButton = "EmailSignIn.button"
             static let qrButton = "QRCodeSignIn.button"
+            static let qrScanFailedAlertOkButton = "qrCodeAlert.okButton"
         }
 
         struct Search {
@@ -162,6 +225,14 @@ public struct AccessibilityIdentifiers {
             static let searchBarSetting = "SearchBarSetting"
             static let topSetting = "TopSearchBar"
             static let bottomSetting = "BottomSearchBar"
+        }
+    }
+
+    struct ShareTo {
+        struct HelpView {
+            static let doneButton = "doneButton"
+            static let topMessageLabel = "topMessageLabel"
+            static let bottomMessageLabel = "bottomMessageLabel"
         }
     }
 }

@@ -8,10 +8,32 @@ import Telemetry
 import Account
 import Sync
 
-class TelemetryWrapper {
+protocol TelemetryWrapperProtocol {
+    func recordEvent(category: TelemetryWrapper.EventCategory,
+                     method: TelemetryWrapper.EventMethod,
+                     object: TelemetryWrapper.EventObject,
+                     value: TelemetryWrapper.EventValue?,
+                     extras: [String: Any]?)
+}
+
+extension TelemetryWrapperProtocol {
+    func recordEvent(category: TelemetryWrapper.EventCategory,
+                     method: TelemetryWrapper.EventMethod,
+                     object: TelemetryWrapper.EventObject,
+                     value: TelemetryWrapper.EventValue? = nil,
+                     extras: [String: Any]? = nil) {
+        recordEvent(category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
+    }
+}
+
+class TelemetryWrapper: TelemetryWrapperProtocol {
+    static let shared = TelemetryWrapper()
     let legacyTelemetry = Telemetry.default
     let glean = Glean.shared
-
     // Boolean flag to temporarily remember if we crashed during the
     // last run of the app. We cannot simply use `Sentry.crashedLastLaunch`
     // because we want to clear this flag after we've already reported it
@@ -19,6 +41,10 @@ class TelemetryWrapper {
     private var crashedLastLaunch: Bool
 
     private var profile: Profile?
+
+    init() {
+        crashedLastLaunch = SentryIntegration.shared.crashedLastLaunch
+    }
 
     private func migratePathComponentInDocumentsDirectory(_ pathComponent: String, to destinationSearchPath: FileManager.SearchPathDirectory) {
         guard let oldPath = try? FileManager.default.url(
@@ -48,9 +74,7 @@ class TelemetryWrapper {
         }
     }
 
-    init(profile: Profile) {
-        crashedLastLaunch = SentryIntegration.shared.crashedLastLaunch
-
+    func setup(profile: Profile) {
         migratePathComponentInDocumentsDirectory("MozTelemetry-Default-core", to: .cachesDirectory)
         migratePathComponentInDocumentsDirectory("MozTelemetry-Default-mobile-event", to: .cachesDirectory)
         migratePathComponentInDocumentsDirectory("eventArray-MozTelemetry-Default-mobile-event.json", to: .cachesDirectory)
@@ -164,6 +188,12 @@ class TelemetryWrapper {
             name: UIApplication.didEnterBackgroundNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(recordFinishedLaunchingPreferenceMetrics(notification:)),
+            name: UIApplication.didFinishLaunchingNotification,
+            object: nil
+        )
     }
 
     // Sets hashed fxa sync device id for glean deletion ping
@@ -176,6 +206,15 @@ class TelemetryWrapper {
 
             let deviceId = (scratchpad.clientGUID + token.hashedFxAUID).sha256.hexEncodedString
             GleanMetrics.Deletion.syncDeviceId.set(deviceId)
+        }
+    }
+    @objc func recordFinishedLaunchingPreferenceMetrics(notification: NSNotification) {
+        guard let profile = self.profile else { return }
+        // Pocket stories visible
+        if let pocketStoriesVisible = profile.prefs.boolForKey(PrefsKeys.FeatureFlags.ASPocketStories) {
+            GleanMetrics.FirefoxHomePage.pocketStoriesVisible.set(pocketStoriesVisible)
+        } else {
+            GleanMetrics.FirefoxHomePage.pocketStoriesVisible.set(true)
         }
     }
 
@@ -234,12 +273,6 @@ class TelemetryWrapper {
         } else {
             GleanMetrics.Preferences.closePrivateTabs.set(false)
         }
-        // Pocket stories visible
-        if let pocketStoriesVisible = prefs.boolForKey(PrefsKeys.FeatureFlags.ASPocketStories) {
-            GleanMetrics.ApplicationServices.pocketStoriesVisible.set(pocketStoriesVisible)
-        } else {
-            GleanMetrics.ApplicationServices.pocketStoriesVisible.set(true)
-        }
         // Tracking protection - enabled
         if let tpEnabled = prefs.boolForKey(ContentBlockingConfig.Prefs.EnabledKey) {
             GleanMetrics.TrackingProtection.enabled.set(tpEnabled)
@@ -263,8 +296,10 @@ class TelemetryWrapper {
         // Wallpapers
         let currentWallpaper = WallpaperManager().currentWallpaper
 
-        if case .themed = currentWallpaper.type {
-            GleanMetrics.WallpaperAnalytics.themedWallpaper[currentWallpaper.name].add()
+        if case .other = currentWallpaper.type {
+            // Need to lowercase the name for labeled counter. Ref:
+            // https://mozilla.github.io/glean/book/reference/metrics/index.html#label-format)
+            GleanMetrics.WallpaperAnalytics.themedWallpaper[currentWallpaper.id.lowercased()].add()
         }
 
     }
@@ -318,6 +353,7 @@ extension TelemetryWrapper {
         case reduceMotion = "reduce-motion"
         case invertColors = "invert-colors"
         case switchControl = "switch-control"
+        case dynamicTextSize = "dynamic-text-size"
     }
 
     public enum EventObject: String {
@@ -373,6 +409,13 @@ extension TelemetryWrapper {
         case onboardingSecondaryButton = "onboarding-card-secondary-button"
         case onboardingSelectWallpaper = "onboarding-select-wallpaper"
         case onboarding = "onboarding"
+        case onboardingWallpaperSelector = "onboarding-wallpaper-selector"
+        // MARK: New Upgrade screen
+        case upgradeOnboardingClose = "upgrade-onboarding-close"
+        case upgradeOnboardingCardView = "upgrade-onboarding-card-view"
+        case upgradeOnboardingPrimaryButton = "upgrade-onboarding-card-primary-button"
+        case upgradeOnboardingSecondaryButton = "upgrade-onboarding-card-secondary-button"
+        case upgradeOnboarding = "upgrade-onboarding"
         case dismissDefaultBrowserCard = "default-browser-card"
         case goToSettingsDefaultBrowserCard = "default-browser-card-go-to-settings"
         case dismissDefaultBrowserOnboarding = "default-browser-onboarding"
@@ -424,7 +467,8 @@ extension TelemetryWrapper {
         case firefoxHomepage = "firefox-homepage"
         case wallpaperSettings = "wallpaper-settings"
         case contextualHint = "contextual-hint"
-        case jumpBackInImpressions = "jump-back-in-impressions"
+        case jumpBackInTileImpressions = "jump-back-in-tile-impressions"
+        case syncedTabTileImpressions = "synced-tab-tile-impressions"
         case historyImpressions = "history-highlights-impressions"
         case recentlySavedBookmarkImpressions = "recently-saved-bookmark-impressions"
         case recentlySavedReadingItemImpressions = "recently-saved-reading-items-impressions"
@@ -439,6 +483,9 @@ extension TelemetryWrapper {
         case fxaConfirmSignInToken = "fxa-confirm-signin-token"
         case awesomebarLocation = "awesomebar-position"
         case searchHighlights = "search-highlights"
+        case viewDownloadsPanel = "view-downloads-panel"
+        case viewHistoryPanel = "view-history-panel"
+        case createNewTab = "create-new-tab"
     }
 
     public enum EventValue: String {
@@ -476,6 +523,8 @@ extension TelemetryWrapper {
         case jumpBackInSectionShowAll = "jump-back-in-section-show-all"
         case jumpBackInSectionTabOpened = "jump-back-in-section-tab-opened"
         case jumpBackInSectionGroupOpened = "jump-back-in-section-group-opened"
+        case jumpBackInSectionSyncedTabShowAll = "jump-back-in-section-synced-tab-show-all"
+        case jumpBackInSectionSyncedTabOpened = "jump-back-in-section-synced-tab-opened"
         case recentlySavedSectionShowAll = "recently-saved-section-show-all"
         case recentlySavedBookmarkItemAction = "recently-saved-bookmark-item-action"
         case recentlySavedBookmarkItemView = "recently-saved-bookmark-item-view"
@@ -485,8 +534,6 @@ extension TelemetryWrapper {
         case historyHighlightsItemOpened = "history-highlights-item-opened"
         case historyHighlightsGroupOpen = "history-highlights-group-open"
         case customizeHomepageButton = "customize-homepage-button"
-        case cycleWallpaperButton = "cycle-wallpaper-button"
-        case toggleLogoWallpaperButton = "toggle-logo-wallpaper-button"
         case wallpaperSelected = "wallpaper-selected"
         case dismissCFRFromButton = "dismiss-cfr-from-button"
         case dismissCFRFromOutsideTap = "dismiss-cfr-from-outside-tap"
@@ -516,6 +563,7 @@ extension TelemetryWrapper {
         case openedTab = "opened-tab"
         case bookmarkItem = "bookmark-item"
         case searchSuggestion = "search-suggestion"
+        case searchHighlights = "search-highlights"
     }
 
     public enum EventExtraKey: String, CustomStringConvertible {
@@ -560,9 +608,24 @@ extension TelemetryWrapper {
         case isReduceTransparencyEnabled = "is-reduce-transparency-enabled"
         case isReduceMotionEnabled = "is-reduce-motion-enabled"
         case isInvertColorsEnabled = "is-invert-colors-enabled"
+        case isAccessibilitySizeEnabled = "is-accessibility-size-enabled"
+        case preferredContentSizeCategory = "preferred-content-size-category"
 
         // Onboarding
         case cardType = "card-type"
+    }
+
+    func recordEvent(category: EventCategory,
+                     method: EventMethod,
+                     object: EventObject,
+                     value: EventValue? = nil,
+                     extras: [String: Any]? = nil
+    ) {
+        TelemetryWrapper.recordEvent(category: category,
+                                     method: method,
+                                     object: object,
+                                     value: value,
+                                     extras: extras)
     }
 
     public static func recordEvent(category: EventCategory, method: EventMethod, object: EventObject, value: EventValue? = nil, extras: [String: Any]? = nil) {
@@ -635,8 +698,12 @@ extension TelemetryWrapper {
                 let isPrivateExtra = GleanMetrics.Preferences.PrivateBrowsingButtonTappedExtra(isPrivate: isPrivate)
                 GleanMetrics.Preferences.privateBrowsingButtonTapped.record(isPrivateExtra)
             } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object,
-                                            value: value, extras: extras)
+                recordUninstrumentedMetrics(
+                    category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
             }
 
         // MARK: - QR Codes
@@ -704,8 +771,12 @@ extension TelemetryWrapper {
                 let awesomebarExtraValue = GleanMetrics.Awesomebar.SearchResultTapExtra(type: tapValue)
                 GleanMetrics.Awesomebar.searchResultTap.record(awesomebarExtraValue)
             } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object,
-                                            value: value, extras: extras)
+                recordUninstrumentedMetrics(
+                    category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
             }
         // MARK: Default Browser
         case (.action, .tap, .dismissDefaultBrowserCard, _, _):
@@ -768,6 +839,47 @@ extension TelemetryWrapper {
         case (.action, .tap, .onboardingClose, _, let extras):
             if let type = extras?[TelemetryWrapper.EventExtraKey.cardType.rawValue] as? String {
                 GleanMetrics.Onboarding.closeTap.record(GleanMetrics.Onboarding.CloseTapExtra(cardType: type))
+            } else {
+                recordUninstrumentedMetrics(category: category, method: method, object: object, value: value, extras: extras)
+            }
+        case (.action, .tap, .onboardingWallpaperSelector, .wallpaperSelected, let extras):
+            if let name = extras?[EventExtraKey.wallpaperName.rawValue] as? String,
+               let type = extras?[EventExtraKey.wallpaperType.rawValue] as? String {
+                let wallpaperExtra = GleanMetrics.Onboarding.WallpaperSelectorSelectedExtra(wallpaperName: name, wallpaperType: type)
+                GleanMetrics.Onboarding.wallpaperSelectorSelected.record(wallpaperExtra)
+            } else {
+                recordUninstrumentedMetrics(category: category, method: method, object: object, value: value, extras: extras)
+            }
+        case (.action, .view, .onboardingWallpaperSelector, _, _):
+            GleanMetrics.Onboarding.wallpaperSelectorView.record()
+        case (.action, .close, .onboardingWallpaperSelector, _, _):
+            GleanMetrics.Onboarding.wallpaperSelectorClose.record()
+
+        // MARK: Upgrade onboarding
+        case (.action, .view, .upgradeOnboardingCardView, _, let extras):
+            if let type = extras?[TelemetryWrapper.EventExtraKey.cardType.rawValue] as? String {
+                let cardTypeExtra = GleanMetrics.Upgrade.CardViewExtra(cardType: type)
+                GleanMetrics.Upgrade.cardView.record(cardTypeExtra)
+            } else {
+                recordUninstrumentedMetrics(category: category, method: method, object: object, value: value, extras: extras)
+            }
+        case (.action, .tap, .upgradeOnboardingPrimaryButton, _, let extras):
+            if let type = extras?[TelemetryWrapper.EventExtraKey.cardType.rawValue] as? String {
+                let cardTypeExtra = GleanMetrics.Upgrade.PrimaryButtonTapExtra(cardType: type)
+                GleanMetrics.Upgrade.primaryButtonTap.record(cardTypeExtra)
+            } else {
+                recordUninstrumentedMetrics(category: category, method: method, object: object, value: value, extras: extras)
+            }
+        case (.action, .tap, .upgradeOnboardingSecondaryButton, _, let extras):
+            if let type = extras?[TelemetryWrapper.EventExtraKey.cardType.rawValue] as? String {
+                let cardTypeExtra = GleanMetrics.Upgrade.SecondaryButtonTapExtra(cardType: type)
+                GleanMetrics.Upgrade.secondaryButtonTap.record(cardTypeExtra)
+            } else {
+                recordUninstrumentedMetrics(category: category, method: method, object: object, value: value, extras: extras)
+            }
+        case (.action, .tap, .upgradeOnboardingClose, _, let extras):
+            if let type = extras?[TelemetryWrapper.EventExtraKey.cardType.rawValue] as? String {
+                GleanMetrics.Upgrade.closeTap.record(GleanMetrics.Upgrade.CloseTapExtra(cardType: type))
             } else {
                 recordUninstrumentedMetrics(category: category, method: method, object: object, value: value, extras: extras)
             }
@@ -846,40 +958,75 @@ extension TelemetryWrapper {
                 let isRunningExtra = GleanMetrics.Accessibility.VoiceOverExtra(isRunning: isRunning)
                 GleanMetrics.Accessibility.voiceOver.record(isRunningExtra)
             } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object,
-                                            value: value, extras: extras)
+                recordUninstrumentedMetrics(
+                    category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
             }
         case(.action, .switchControl, .app, _, let extras):
             if let isRunning = extras?[EventExtraKey.isSwitchControlRunning.rawValue] as? String {
                 let isRunningExtra = GleanMetrics.Accessibility.SwitchControlExtra(isRunning: isRunning)
                 GleanMetrics.Accessibility.switchControl.record(isRunningExtra)
             } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object,
-                                            value: value, extras: extras)
+                recordUninstrumentedMetrics(
+                    category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
             }
         case(.action, .reduceTransparency, .app, _, let extras):
             if let isEnabled = extras?[EventExtraKey.isReduceTransparencyEnabled.rawValue] as? String {
                 let isEnabledExtra = GleanMetrics.Accessibility.ReduceTransparencyExtra(isEnabled: isEnabled)
                 GleanMetrics.Accessibility.reduceTransparency.record(isEnabledExtra)
             } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object,
-                                            value: value, extras: extras)
+                recordUninstrumentedMetrics(
+                    category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
             }
         case(.action, .reduceMotion, .app, _, let extras):
             if let isEnabled = extras?[EventExtraKey.isReduceMotionEnabled.rawValue] as? String {
                 let isEnabledExtra = GleanMetrics.Accessibility.ReduceMotionExtra(isEnabled: isEnabled)
                 GleanMetrics.Accessibility.reduceMotion.record(isEnabledExtra)
             } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object,
-                                            value: value, extras: extras)
+                recordUninstrumentedMetrics(
+                    category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
             }
         case(.action, .invertColors, .app, _, let extras):
             if let isEnabled = extras?[EventExtraKey.isInvertColorsEnabled.rawValue] as? String {
                 let isEnabledExtra = GleanMetrics.Accessibility.InvertColorsExtra(isEnabled: isEnabled)
                 GleanMetrics.Accessibility.invertColors.record(isEnabledExtra)
             } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object,
-                                            value: value, extras: extras)
+                recordUninstrumentedMetrics(
+                    category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
+            }
+        case(.action, .dynamicTextSize, .app, _, let extras):
+            if let isAccessibilitySizeEnabled = extras?[EventExtraKey.isAccessibilitySizeEnabled.rawValue] as? String,
+               let preferredSize = extras?[EventExtraKey.preferredContentSizeCategory.rawValue] as? String {
+                let dynamicTextExtra = GleanMetrics.Accessibility.DynamicTextExtra(
+                    isAccessibilitySizeEnabled: isAccessibilitySizeEnabled,
+                    preferredSize: preferredSize)
+                GleanMetrics.Accessibility.dynamicText.record(dynamicTextExtra)
+            } else {
+                recordUninstrumentedMetrics(
+                    category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
             }
         // MARK: App menu
         case (.action, .tap, .logins, _, _):
@@ -922,6 +1069,12 @@ extension TelemetryWrapper {
             GleanMetrics.PageActionMenu.requestDesktopSite.add()
         case (.action, .tap, .requestMobileSite, _, _):
             GleanMetrics.PageActionMenu.requestMobileSite.add()
+        case (.action, .tap, .viewDownloadsPanel, _, _):
+            GleanMetrics.PageActionMenu.viewDownloadsPanel.add()
+        case (.action, .tap, .viewHistoryPanel, _, _):
+            GleanMetrics.PageActionMenu.viewHistoryPanel.add()
+        case (.action, .tap, .createNewTab, _, _):
+            GleanMetrics.PageActionMenu.createNewTab.add()
 
         // MARK: Inactive Tab Tray
         case (.action, .tap, .inactiveTabTray, .openInactiveTab, _):
@@ -992,8 +1145,8 @@ extension TelemetryWrapper {
             if let homePageOrigin = extras?[EventExtraKey.fxHomepageOrigin.rawValue] as? String {
                 GleanMetrics.FirefoxHomePage.jumpBackInShowAllOrigin[homePageOrigin].add()
             }
-        case (.action, .view, .jumpBackInImpressions, _, _):
-            GleanMetrics.FirefoxHomePage.jumpBackInSectionView.add()
+        case (.action, .view, .jumpBackInTileImpressions, _, _):
+            GleanMetrics.FirefoxHomePage.jumpBackInTileView.add()
         case (.action, .tap, .firefoxHomepage, .jumpBackInSectionTabOpened, let extras):
             GleanMetrics.FirefoxHomePage.jumpBackInTabOpened.add()
             if let homePageOrigin = extras?[EventExtraKey.fxHomepageOrigin.rawValue] as? String {
@@ -1004,6 +1157,18 @@ extension TelemetryWrapper {
             if let homePageOrigin = extras?[EventExtraKey.fxHomepageOrigin.rawValue] as? String {
                 GleanMetrics.FirefoxHomePage.jumpBackInGroupOpenOrigin[homePageOrigin].add()
             }
+        case (.action, .tap, .firefoxHomepage, .jumpBackInSectionSyncedTabShowAll, let extras):
+            GleanMetrics.FirefoxHomePage.syncedTabShowAll.add()
+            if let homePageOrigin = extras?[EventExtraKey.fxHomepageOrigin.rawValue] as? String {
+                GleanMetrics.FirefoxHomePage.syncedTabShowAllOrigin[homePageOrigin].add()
+            }
+        case (.action, .tap, .firefoxHomepage, .jumpBackInSectionSyncedTabOpened, let extras):
+            GleanMetrics.FirefoxHomePage.syncedTabOpened.add()
+            if let homePageOrigin = extras?[EventExtraKey.fxHomepageOrigin.rawValue] as? String {
+                GleanMetrics.FirefoxHomePage.syncedTabOpenedOrigin[homePageOrigin].add()
+            }
+        case (.action, .view, .syncedTabTileImpressions, _, _):
+            GleanMetrics.FirefoxHomePage.syncedTabTileView.add()
 
         case (.action, .tap, .firefoxHomepage, .customizeHomepageButton, _):
             GleanMetrics.FirefoxHomePage.customizeHomepageButton.add()
@@ -1026,28 +1191,6 @@ extension TelemetryWrapper {
             }
 
         // MARK: - Wallpaper related
-        case (.action, .tap, .firefoxHomepage, .cycleWallpaperButton, let extras):
-            if let name = extras?[EventExtraKey.wallpaperName.rawValue] as? String,
-               let type = extras?[EventExtraKey.wallpaperType.rawValue] as? String {
-                GleanMetrics.WallpaperAnalytics.cycleWallpaperButton.record(
-                    GleanMetrics.WallpaperAnalytics.CycleWallpaperButtonExtra(
-                        wallpaperName: name,
-                        wallpaperType: type
-                    )
-                )
-
-            } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object, value: value, extras: extras)
-            }
-
-        case (.action, .change, .wallpaperSettings, .toggleLogoWallpaperButton, _):
-            if let state = extras?[EventExtraKey.preferenceChanged.rawValue] as? String {
-                GleanMetrics.WallpaperAnalytics.toggleLogoWallpaperButton.record(
-                    GleanMetrics.WallpaperAnalytics.ToggleLogoWallpaperButtonExtra(changedTo: state)
-                )
-            } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object, value: value, extras: extras)
-            }
         case (.action, .tap, .wallpaperSettings, .wallpaperSelected, let extras):
             if let name = extras?[EventExtraKey.wallpaperName.rawValue] as? String,
                let type = extras?[EventExtraKey.wallpaperType.rawValue] as? String {
@@ -1091,8 +1234,12 @@ extension TelemetryWrapper {
                 let locationExtra = GleanMetrics.Awesomebar.LocationExtra(location: location)
                 GleanMetrics.Awesomebar.location.record(locationExtra)
             } else {
-                recordUninstrumentedMetrics(category: category, method: method, object: object,
-                                            value: value, extras: extras)
+                recordUninstrumentedMetrics(
+                    category: category,
+                    method: method,
+                    object: object,
+                    value: value,
+                    extras: extras)
             }
         case (.action, .drag, .locationBar, _, _):
             GleanMetrics.Awesomebar.dragLocationBar.record()
@@ -1132,7 +1279,6 @@ extension TelemetryWrapper {
                     GleanMetrics.Messaging.MalformedExtra(messageKey: messageId)
                 )
             }
-
         default:
             recordUninstrumentedMetrics(category: category, method: method, object: object, value: value, extras: extras)
         }
@@ -1153,7 +1299,7 @@ extension TelemetryWrapper {
 // MARK: - Firefox Home Page
 extension TelemetryWrapper {
 
-    /// Bundle the extras dictionnary for the home page origin
+    /// Bundle the extras dictionary for the home page origin
     static func getOriginExtras(isZeroSearch: Bool) -> [String: String] {
         let origin = isZeroSearch ? TelemetryWrapper.EventValue.fxHomepageOriginZeroSearch : TelemetryWrapper.EventValue.fxHomepageOriginOther
         return [TelemetryWrapper.EventExtraKey.fxHomepageOrigin.rawValue: origin.rawValue]
